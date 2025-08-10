@@ -4,18 +4,18 @@
  * This is a basic validation that will be replaced with proper Jest tests in Story 1.3
  */
 
-const fs = require('fs');
-const path = require('path');
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Simple assertion helper
-function assert(condition, message) {
+function assert(condition: boolean, message: string): void {
   if (!condition) {
     throw new Error(`❌ ASSERTION FAILED: ${message}`);
   }
   console.log(`✅ ${message}`);
 }
 
-function validateProjectStructure() {
+function validateProjectStructure(): boolean {
   console.log('🔍 Validating Project Structure...\n');
   
   const projectRoot = path.resolve(__dirname, '../..');
@@ -28,7 +28,7 @@ function validateProjectStructure() {
   
   const readmeContent = fs.readFileSync(readmePath, 'utf8');
   assert(readmeContent.includes('Popup MCP Extension'), 'README contains project title');
-  assert(readmeContent.includes('Setup Instructions'), 'README contains setup instructions');
+  assert(readmeContent.includes('Development Environment Setup'), 'README contains development setup instructions');
   
   const gitignorePath = path.join(projectRoot, '.gitignore');
   assert(fs.existsSync(gitignorePath), '.gitignore exists');
@@ -86,9 +86,10 @@ if (require.main === module) {
     validateProjectStructure();
     process.exit(0);
   } catch (error) {
-    console.error(`\n❌ Validation failed: ${error.message}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`\n❌ Validation failed: ${errorMessage}`);
     process.exit(1);
   }
 }
 
-module.exports = { validateProjectStructure };
+export { validateProjectStructure };
