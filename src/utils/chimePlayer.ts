@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { spawn } from 'child_process';
 import { ExtensionConfig } from '../types';
+import { logger } from './logger';
 
 /**
  * ChimePlayer handles playing notification sounds for popup display
@@ -43,44 +45,82 @@ export class ChimePlayer {
       // Check if chime is enabled in configuration
       const config = this.getExtensionConfig();
       if (!config.chimeEnabled) {
+        logger.debug('Chime disabled in configuration');
         return;
       }
 
-      await this.initialize();
-
-      // In VS Code extension context, we'll use a system beep or notification sound
-      // Since Web Audio API might not be available, we use VS Code's built-in methods
-      
-      // Try to play system notification sound
-      await this.playSystemSound();
+      await this.playWavFile();
       
     } catch (error) {
-      console.error('Failed to play chime:', error);
+      logger.error('Failed to play chime:', error);
       // Fallback to console beep
       console.log('\x07'); // ASCII bell character
     }
   }
 
   /**
-   * Plays system notification sound using VS Code APIs
+   * Plays the actual WAV file using cross-platform system commands
    */
-  private async playSystemSound(): Promise<void> {
-    try {
-      // For now, we'll use a simple approach that works in VS Code extension context
-      // In a real implementation, you might want to use node.js child_process
-      // to play system sounds or integrate with VS Code's notification system
-      
-      // Create a subtle visual notification as audio feedback
-      vscode.window.showInformationMessage('🔔', { modal: false });
-      
-      // Hide the message quickly to simulate a chime
-      setTimeout(() => {
-        vscode.commands.executeCommand('workbench.action.closeMessages');
-      }, 500);
-      
-    } catch (error) {
-      throw new Error(`Failed to play system sound: ${error}`);
+  private async playWavFile(): Promise<void> {
+    const config = this.getExtensionConfig();
+    const volume = config.chimeVolume / 100;
+    const soundPath = path.join(this.extensionUri.fsPath, 'assets', 'chime.wav');
+
+    logger.info(`[Sound] Attempting playback at: ${soundPath}`);
+
+    // Check if the chime file exists
+    if (!fs.existsSync(soundPath)) {
+      logger.error('[Sound] Error: File not found! Check if assets/chime.wav is bundled.');
+      throw new Error('Chime file not found');
     }
+
+    // Determine the command and arguments based on platform
+    let command: string;
+    let args: string[] = [];
+
+    if (process.platform === 'win32') {
+      command = 'powershell';
+      args = [
+        '-NoProfile', 
+        '-c', 
+        `(New-Object Media.SoundPlayer '${soundPath.replace(/\//g, '\\')}').PlaySync()`
+      ];
+    } else if (process.platform === 'darwin') {
+      command = 'afplay';
+      args = [soundPath, '-v', volume.toString()];
+    } else {
+      // Linux and other Unix-like systems
+      command = 'aplay';
+      args = ['-v', volume.toString(), soundPath];
+    }
+
+    logger.info(`[Sound] Spawning: ${command} ${args.join(' ')}`);
+
+    return new Promise<void>((resolve, reject) => {
+      const proc = spawn(command, args, { shell: true });
+
+      proc.stdout?.on('data', (data) => {
+        logger.debug(`[Sound] stdout: ${data}`);
+      });
+
+      proc.stderr?.on('data', (data) => {
+        logger.debug(`[Sound] stderr: ${data}`);
+      });
+
+      proc.on('error', (err) => {
+        logger.error(`[Sound] Playback error: ${err.message}`);
+        reject(err);
+      });
+
+      proc.on('close', (code) => {
+        logger.info(`[Sound] Process closed with code ${code}`);
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Audio playback failed with code ${code}`));
+        }
+      });
+    });
   }
 
   /**
@@ -91,6 +131,7 @@ export class ChimePlayer {
     
     return {
       chimeEnabled: config.get<boolean>('chimeEnabled', true),
+      chimeVolume: config.get<number>('chimeVolume', 50),
       popupTimeout: config.get<number>('popupTimeout', 30),
       httpPort: config.get<number>('httpPort', 0),
       enableStdio: config.get<boolean>('enableStdio', true),

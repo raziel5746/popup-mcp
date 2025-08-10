@@ -101,6 +101,7 @@ function loadConfiguration(): ExtensionConfig {
   
   return {
     chimeEnabled: config.get('chimeEnabled', true),
+    chimeVolume: config.get('chimeVolume', 50),
     popupTimeout: 30, // Will be implemented in future stories
     httpPort: config.get('httpPort', 0),
     enableStdio: config.get('enableStdio', true),

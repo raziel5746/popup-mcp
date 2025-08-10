@@ -5,6 +5,10 @@
 import * as vscode from 'vscode';
 import { ChimePlayer } from '../../../src/utils/chimePlayer';
 
+// Mock child_process and fs modules
+jest.mock('child_process');
+jest.mock('fs');
+
 // Mock VS Code API
 jest.mock('vscode', () => ({
   Uri: {
@@ -23,6 +27,15 @@ jest.mock('vscode', () => ({
   },
   ConfigurationTarget: {
     Global: 1
+  }
+}));
+
+// Mock logger
+jest.mock('../../../src/utils/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    debug: jest.fn(),
+    error: jest.fn()
   }
 }));
 
@@ -48,28 +61,46 @@ describe('ChimePlayer', () => {
 
   describe('playChime', () => {
     it('should play chime when enabled', async () => {
+      const { spawn } = require('child_process');
+      const fs = require('fs');
+      
       // Mock configuration to enable chime
       const mockConfig = {
         get: jest.fn((key: string, defaultValue?: any) => {
-          if (key === 'chimeEnabled') return true;
-          return defaultValue;
+          const values: { [key: string]: any } = {
+            chimeEnabled: true,
+            chimeVolume: 50
+          };
+          return values[key] ?? defaultValue;
         })
       };
 
       jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue(mockConfig as any);
 
-      const showInformationMessageSpy = jest.spyOn(vscode.window, 'showInformationMessage')
-        .mockResolvedValue(undefined);
+      // Mock fs.existsSync to return true
+      fs.existsSync = jest.fn().mockReturnValue(true);
 
-      const executeCommandSpy = jest.spyOn(vscode.commands, 'executeCommand')
-        .mockResolvedValue(undefined);
+      // Mock spawn to simulate successful audio playback
+      const mockProcess = {
+        stdout: { on: jest.fn() },
+        stderr: { on: jest.fn() },
+        on: jest.fn((event, callback) => {
+          if (event === 'close') {
+            setTimeout(() => callback(0), 10); // Simulate successful completion
+          }
+        })
+      };
+      spawn.mockReturnValue(mockProcess);
 
       await chimePlayer.playChime();
 
-      expect(showInformationMessageSpy).toHaveBeenCalledWith('🔔', { modal: false });
+      expect(spawn).toHaveBeenCalled();
+      expect(fs.existsSync).toHaveBeenCalled();
     });
 
     it('should not play chime when disabled', async () => {
+      const { spawn } = require('child_process');
+      
       // Mock configuration to disable chime
       const mockConfig = {
         get: jest.fn((key: string, defaultValue?: any) => {
@@ -80,38 +111,37 @@ describe('ChimePlayer', () => {
 
       jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue(mockConfig as any);
 
-      const showInformationMessageSpy = jest.spyOn(vscode.window, 'showInformationMessage');
-
       await chimePlayer.playChime();
 
-      expect(showInformationMessageSpy).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
     });
 
     it('should handle errors gracefully', async () => {
+      const fs = require('fs');
+      
       // Mock configuration to enable chime
       const mockConfig = {
         get: jest.fn((key: string, defaultValue?: any) => {
-          if (key === 'chimeEnabled') return true;
-          return defaultValue;
+          const values: { [key: string]: any } = {
+            chimeEnabled: true,
+            chimeVolume: 50
+          };
+          return values[key] ?? defaultValue;
         })
       };
 
       jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue(mockConfig as any);
 
-      // Mock showInformationMessage to throw an error
-      jest.spyOn(vscode.window, 'showInformationMessage')
-        .mockRejectedValue(new Error('Mock error'));
+      // Mock fs.existsSync to return false (file not found)
+      fs.existsSync = jest.fn().mockReturnValue(false);
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       // This should not throw, error should be caught internally
       await expect(chimePlayer.playChime()).resolves.not.toThrow();
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to play chime:', expect.any(Error));
       expect(consoleLogSpy).toHaveBeenCalledWith('\x07'); // ASCII bell character
 
-      consoleErrorSpy.mockRestore();
       consoleLogSpy.mockRestore();
     });
   });
@@ -122,6 +152,7 @@ describe('ChimePlayer', () => {
         get: jest.fn((key: string, defaultValue?: any) => {
           const values: { [key: string]: any } = {
             chimeEnabled: true,
+            chimeVolume: 75,
             popupTimeout: 30,
             httpPort: 3000,
             enableStdio: false,
@@ -192,25 +223,35 @@ describe('ChimePlayer', () => {
     });
   });
 
-  describe('initialization', () => {
-    it('should initialize only once', async () => {
+  describe('audio file handling', () => {
+    it('should handle missing audio file', async () => {
+      const fs = require('fs');
+      const { spawn } = require('child_process');
+      
       // Mock configuration
       const mockConfig = {
         get: jest.fn((key: string, defaultValue?: any) => {
-          if (key === 'chimeEnabled') return true;
-          return defaultValue;
+          const values: { [key: string]: any } = {
+            chimeEnabled: true,
+            chimeVolume: 50
+          };
+          return values[key] ?? defaultValue;
         })
       };
 
       jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue(mockConfig as any);
-      jest.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
 
-      // Call playChime multiple times
-      await chimePlayer.playChime();
+      // Mock fs.existsSync to return false (file not found)
+      fs.existsSync = jest.fn().mockReturnValue(false);
+
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
       await chimePlayer.playChime();
 
-      // Internal initialization should only happen once
-      expect((chimePlayer as any).isInitialized).toBe(true);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith('\x07');
+
+      consoleLogSpy.mockRestore();
     });
   });
 
@@ -222,41 +263,52 @@ describe('ChimePlayer', () => {
           throw new Error('Configuration error');
         });
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await expect(chimePlayer.playChime()).resolves.not.toThrow();
 
-      expect(consoleErrorSpy).toHaveBeenCalled();
       expect(consoleLogSpy).toHaveBeenCalledWith('\x07');
 
-      consoleErrorSpy.mockRestore();
       consoleLogSpy.mockRestore();
     });
 
-    it('should handle system sound playback errors', async () => {
+    it('should handle audio process errors', async () => {
+      const fs = require('fs');
+      const { spawn } = require('child_process');
+      
       const mockConfig = {
         get: jest.fn((key: string, defaultValue?: any) => {
-          if (key === 'chimeEnabled') return true;
-          return defaultValue;
+          const values: { [key: string]: any } = {
+            chimeEnabled: true,
+            chimeVolume: 50
+          };
+          return values[key] ?? defaultValue;
         })
       };
 
       jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue(mockConfig as any);
       
-      // Mock system sound to fail
-      jest.spyOn(vscode.window, 'showInformationMessage')
-        .mockRejectedValue(new Error('System sound failed'));
+      // Mock fs.existsSync to return true
+      fs.existsSync = jest.fn().mockReturnValue(true);
+      
+      // Mock spawn to simulate process error
+      const mockProcess = {
+        stdout: { on: jest.fn() },
+        stderr: { on: jest.fn() },
+        on: jest.fn((event, callback) => {
+          if (event === 'error') {
+            setTimeout(() => callback(new Error('Process failed')), 10);
+          }
+        })
+      };
+      spawn.mockReturnValue(mockProcess);
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await expect(chimePlayer.playChime()).resolves.not.toThrow();
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to play chime:', expect.any(Error));
       expect(consoleLogSpy).toHaveBeenCalledWith('\x07');
 
-      consoleErrorSpy.mockRestore();
       consoleLogSpy.mockRestore();
     });
   });

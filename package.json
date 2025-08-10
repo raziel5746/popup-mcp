@@ -70,6 +70,13 @@
           "type": "boolean",
           "default": true,
           "description": "Enable notification chime sound when popups appear"
+        },
+        "popupmcp.chimeVolume": {
+          "type": "number",
+          "default": 50,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Chime volume level (0-100)"
         }
       }
     }

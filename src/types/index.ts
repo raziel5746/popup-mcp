@@ -34,6 +34,8 @@ export interface PopupResponse {
 export interface ExtensionConfig {
   /** Toggle for popup sound */
   chimeEnabled: boolean;
+  /** Chime volume level (0-100) */
+  chimeVolume: number;
   /** Auto-dismiss time in seconds */
   popupTimeout: number;
   /** HTTP port for MCP server (0 = auto-assign) */
