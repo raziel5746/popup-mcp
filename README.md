@@ -11,54 +11,217 @@ This extension provides:
 - **Zero Configuration**: Works out-of-the-box with automatic transport setup
 - **Extensible Architecture**: Clean separation between server logic and UI components
 
-## Setup Instructions
+## Development Environment Setup
 
-### Prerequisites
+### Prerequisites & System Requirements
 
-- **Node.js**: 20.x LTS
-- **VS Code**: Version 1.70 or higher
-- **TypeScript**: 5.3.x (installed via npm)
-- **vsce**: Latest (VS Code Extension CLI)
+Before starting development, ensure your system meets these requirements:
 
-### Development Setup
+#### Required Tools & Versions
 
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd popup-mcp
-   ```
+| Category | Tool | Version | Purpose | Installation |
+|----------|------|---------|---------|-------------|
+| **Core Runtime** | Node.js | 20.x LTS | JavaScript runtime & package manager | [Download from nodejs.org](https://nodejs.org/) |
+| **IDE** | VS Code | 1.70+ | Development environment & target platform | [Download from code.visualstudio.com](https://code.visualstudio.com/) |
+| **Language** | TypeScript | 5.3.x | Core development language | `npm install -g typescript@5.3` |
+| **Extension CLI** | vsce | Latest | VS Code extension packaging | `npm install -g vsce` |
+| **Build Tool** | esbuild | 0.20.x | Fast bundling for extension | Installed via npm dependencies |
+| **Testing** | Jest | 29.x | Unit & integration testing | Installed via npm dependencies |
+| **E2E Testing** | Playwright | 1.41.x | End-to-end testing | Installed via npm dependencies |
+| **VS Code Testing** | @vscode/test-electron | Latest | Extension testing framework | Installed via npm dependencies |
 
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
+#### Operating System Support
+- **Windows**: Windows 10/11 (tested)
+- **macOS**: macOS 10.15+ 
+- **Linux**: Ubuntu 18.04+, other major distributions
 
-3. **Build the extension**:
-   ```bash
-   npm run build
-   ```
+### Step-by-Step Installation Guide
 
-4. **Run tests**:
-   ```bash
-   npm test
-   ```
+#### 1. Install Node.js 20.x LTS
+```bash
+# Verify installation
+node --version  # Should output v20.x.x
+npm --version   # Should output 10.x.x or higher
+```
 
-5. **Package the extension** (optional):
-   ```bash
-   npm run package
-   ```
+#### 2. Install VS Code 1.70+
+```bash
+# Verify installation
+code --version  # Should output 1.70.x or higher
+```
 
-### Required Tools & Versions
+#### 3. Install Global Development Tools
+```bash
+# Install TypeScript compiler globally
+npm install -g typescript@5.3
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Node.js | 20.x LTS | Runtime environment |
-| TypeScript | 5.3.x | Core development language |
-| VS Code | 1.70+ | Target platform |
-| esbuild | 0.20.x | Fast bundling |
-| Jest | 29.x | Testing framework |
-| Playwright | 1.41.x | E2E testing |
-| vsce | Latest | Extension packaging |
+# Install VS Code Extension CLI
+npm install -g vsce
+
+# Verify installations
+tsc --version   # Should output Version 5.3.x
+vsce --version  # Should output latest version
+```
+
+#### 4. Clone and Setup Project
+```bash
+# Clone the repository
+git clone <repository-url>
+cd popup-mcp
+
+# Install project dependencies
+npm install
+
+# Verify TypeScript compilation
+npm run compile
+
+# Run initial build
+npm run build
+```
+
+#### 5. Development Workflow Setup
+```bash
+# Install recommended VS Code extensions (optional but helpful)
+code --install-extension ms-vscode.vscode-typescript-next
+code --install-extension ms-vscode.extension-test-runner
+
+# Run tests to verify setup
+npm test
+
+# Start development mode (watch for changes)
+npm run watch
+```
+
+### Environment Configuration
+
+#### VS Code Settings
+Create or update `.vscode/settings.json` (will be created in Story 1.3):
+```json
+{
+  "typescript.preferences.includePackageJsonAutoImports": "on",
+  "typescript.suggest.autoImports": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": true
+  }
+}
+```
+
+#### Environment Variables
+No environment variables required for basic development. Optional configurations:
+- `VSCODE_TEST_DATA_DIR`: Custom test data directory
+- `NODE_ENV`: Set to 'development' for additional logging
+
+### Verification Steps
+
+#### System Verification Checklist
+Run these commands to verify your development environment:
+
+```bash
+# 1. Check Node.js version (must be 20.x LTS)
+node --version
+
+# 2. Check npm version
+npm --version
+
+# 3. Check VS Code version (must be 1.70+)
+code --version
+
+# 4. Check TypeScript version (must be 5.3.x)
+tsc --version
+
+# 5. Check vsce installation
+vsce --version
+
+# 6. Verify project dependencies install correctly
+npm install --dry-run
+
+# 7. Run basic compilation test
+npx tsc --noEmit
+
+# 8. Run project structure validation
+node tests/integration/project-structure.test.js
+```
+
+#### VS Code Extension Development Test
+1. Open the project in VS Code: `code .`
+2. Press `F5` to launch Extension Development Host
+3. Verify no errors in Debug Console
+4. Check that extension activates (will be implemented in Story 1.3)
+
+### Development Scripts
+
+Once package.json is created (Story 1.3), these scripts will be available:
+
+```bash
+# Development
+npm run watch          # Compile TypeScript in watch mode
+npm run compile        # Compile TypeScript once
+npm run build          # Build extension for testing
+
+# Testing
+npm test              # Run all tests
+npm run test:unit     # Run unit tests only
+npm run test:integration  # Run integration tests
+npm run test:e2e      # Run end-to-end tests
+
+# Packaging
+npm run package       # Create .vsix file for distribution
+npm run deploy        # Deploy to marketplace (with proper credentials)
+
+# Linting & Formatting
+npm run lint          # Check code style
+npm run lint:fix      # Fix linting issues automatically
+```
+
+### Troubleshooting Common Setup Issues
+
+#### Node.js Version Issues
+```bash
+# If you have wrong Node.js version, use nvm (Node Version Manager)
+# Install nvm first, then:
+nvm install 20
+nvm use 20
+```
+
+#### VS Code Version Issues
+- Ensure VS Code is updated to 1.70+
+- Check: Help → About in VS Code
+- Update via: Help → Check for Updates
+
+#### TypeScript Compilation Issues
+```bash
+# Clear TypeScript cache
+npx tsc --build --clean
+
+# Reinstall TypeScript
+npm uninstall -g typescript
+npm install -g typescript@5.3
+```
+
+#### Extension Testing Issues
+```bash
+# Clear VS Code extension host cache
+# Close VS Code, delete:
+# Windows: %APPDATA%\Code\CachedExtensions
+# macOS: ~/Library/Application Support/Code/CachedExtensions
+# Linux: ~/.config/Code/CachedExtensions
+```
+
+### IDE Configuration Recommendations
+
+#### Recommended VS Code Extensions
+- **TypeScript and JavaScript Language Features** (built-in)
+- **Extension Test Runner** - For running tests
+- **GitLens** - Enhanced Git integration
+- **Prettier** - Code formatting
+- **ESLint** - Code linting
+
+#### Workspace Settings
+The project will include optimized workspace settings for:
+- TypeScript IntelliSense
+- Debugging configuration
+- Test runner integration
+- Build task definitions
 
 ### Project Structure
 

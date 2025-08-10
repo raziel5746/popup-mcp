@@ -28,7 +28,7 @@ function validateProjectStructure() {
   
   const readmeContent = fs.readFileSync(readmePath, 'utf8');
   assert(readmeContent.includes('Popup MCP Extension'), 'README contains project title');
-  assert(readmeContent.includes('Setup Instructions'), 'README contains setup instructions');
+  assert(readmeContent.includes('Development Environment Setup'), 'README contains development setup instructions');
   
   const gitignorePath = path.join(projectRoot, '.gitignore');
   assert(fs.existsSync(gitignorePath), '.gitignore exists');
