@@ -6,20 +6,19 @@
 import * as vscode from 'vscode';
 import { McpServer } from './backend/mcpServer';
 import { TransportConfig, ExtensionConfig } from './types';
+import { logger } from './utils/logger';
 
 let mcpServer: McpServer | undefined;
-let outputChannel: vscode.OutputChannel;
 
 /**
  * Extension activation function - called when VS Code starts or extension is activated
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   try {
-    console.log('[Popup MCP] Extension activating...');
-    
-    // Create output channel for logging
-    outputChannel = vscode.window.createOutputChannel('Popup MCP');
-    outputChannel.appendLine('Popup MCP Extension starting...');
+    // Initialize logger first
+    logger.initialize();
+    logger.info('Extension activating...');
+    logger.info('Popup MCP Extension starting...');
     
     // Load configuration
     const config = loadConfiguration();
@@ -40,17 +39,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Register configuration change handler
     registerConfigurationHandler();
     
-    outputChannel.appendLine('Popup MCP Extension activated successfully');
-    console.log('[Popup MCP] Extension activated successfully');
+    logger.info('Extension activated successfully');
     
   } catch (error) {
     const errorMessage = `Failed to activate Popup MCP Extension: ${error instanceof Error ? error.message : String(error)}`;
-    console.error('[Popup MCP]', errorMessage);
-    
-    if (outputChannel) {
-      outputChannel.appendLine(`ERROR: ${errorMessage}`);
-      outputChannel.show();
-    }
+    logger.error(errorMessage);
+    logger.show();
     
     vscode.window.showErrorMessage(errorMessage);
     throw error;
@@ -62,11 +56,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
  */
 export async function deactivate(): Promise<void> {
   try {
-    console.log('[Popup MCP] Extension deactivating...');
+    logger.info('Extension deactivating...');
     
-    if (outputChannel) {
-      outputChannel.appendLine('Popup MCP Extension shutting down...');
-    }
+    logger.info('Popup MCP Extension shutting down...');
     
     // Stop MCP server
     if (mcpServer) {
@@ -74,19 +66,11 @@ export async function deactivate(): Promise<void> {
       mcpServer = undefined;
     }
     
-    // Dispose output channel
-    if (outputChannel) {
-      outputChannel.dispose();
-    }
-    
-    console.log('[Popup MCP] Extension deactivated successfully');
+    logger.info('Extension deactivated successfully');
+    logger.dispose();
     
   } catch (error) {
-    console.error('[Popup MCP] Error during deactivation:', error);
-    
-    if (outputChannel) {
-      outputChannel.appendLine(`ERROR during shutdown: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    logger.error('Error during deactivation:', error);
   }
 }
 
@@ -129,14 +113,14 @@ function setupServerEventHandlers(): void {
   if (!mcpServer) return;
   
   mcpServer.on('started', () => {
-    outputChannel.appendLine('MCP Server started successfully');
+    logger.info('MCP Server started successfully');
     
     const health = mcpServer!.getHealth();
     if (health.httpStatus === 'listening') {
       // Get the actual port from server config
       const httpConfig = (mcpServer as any).config?.http;
       const port = httpConfig?.port || 'unknown';
-      outputChannel.appendLine(`HTTP transport listening on localhost:${port}`);
+      logger.info(`HTTP transport listening on localhost:${port}`);
       
       // Show info message with server details
       vscode.window.showInformationMessage(
@@ -144,29 +128,28 @@ function setupServerEventHandlers(): void {
         'Show Output'
       ).then(selection => {
         if (selection === 'Show Output') {
-          outputChannel.show();
+          logger.show();
         }
       });
     }
     
     if (health.stdioStatus === 'active') {
-      outputChannel.appendLine('Stdio transport active');
+      logger.info('Stdio transport active');
     }
   });
   
   mcpServer.on('stopped', () => {
-    outputChannel.appendLine('MCP Server stopped');
+    logger.info('MCP Server stopped');
   });
   
   mcpServer.on('error', (error) => {
     const errorMessage = `MCP Server error: ${error.message}`;
-    outputChannel.appendLine(`ERROR: ${errorMessage}`);
-    console.error('[Popup MCP]', errorMessage);
+    logger.error(errorMessage);
     
     // Show error to user
     vscode.window.showErrorMessage(errorMessage, 'Show Output').then(selection => {
       if (selection === 'Show Output') {
-        outputChannel.show();
+        logger.show();
       }
     });
   });
@@ -202,9 +185,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         'Show Details'
       ).then(selection => {
         if (selection === 'Show Details') {
-          outputChannel.show();
-          outputChannel.appendLine('=== Server Health Check ===');
-          healthInfo.forEach(info => outputChannel.appendLine(info));
+          logger.show();
+          logger.info('=== Server Health Check ===');
+          healthInfo.forEach(info => logger.info(info));
         }
       });
       
@@ -220,27 +203,27 @@ function registerCommands(context: vscode.ExtensionContext): void {
       return;
     }
     
-    outputChannel.show();
-    outputChannel.appendLine('=== MCP Server Status ===');
+    logger.show();
+    logger.info('=== MCP Server Status ===');
     
     const health = mcpServer.getHealth();
-    outputChannel.appendLine(`Overall Status: ${health.status}`);
-    outputChannel.appendLine(`HTTP Transport: ${health.httpStatus || 'disabled'}`);
-    outputChannel.appendLine(`Stdio Transport: ${health.stdioStatus || 'disabled'}`);
-    outputChannel.appendLine(`Uptime: ${Math.round((health.uptime || 0) / 1000)} seconds`);
-    outputChannel.appendLine(`Active Connections: ${health.activeConnections || 0}`);
+    logger.info(`Overall Status: ${health.status}`);
+    logger.info(`HTTP Transport: ${health.httpStatus || 'disabled'}`);
+    logger.info(`Stdio Transport: ${health.stdioStatus || 'disabled'}`);
+    logger.info(`Uptime: ${Math.round((health.uptime || 0) / 1000)} seconds`);
+    logger.info(`Active Connections: ${health.activeConnections || 0}`);
     
     if (health.lastError) {
-      outputChannel.appendLine(`Last Error: ${health.lastError}`);
+      logger.info(`Last Error: ${health.lastError}`);
     }
     
     // Show current configuration
     const config = loadConfiguration();
-    outputChannel.appendLine('--- Configuration ---');
-    outputChannel.appendLine(`HTTP Enabled: ${config.enableHttp}`);
-    outputChannel.appendLine(`HTTP Port: ${config.httpPort || 'auto'}`);
-    outputChannel.appendLine(`Stdio Enabled: ${config.enableStdio}`);
-    outputChannel.appendLine(`Log Level: ${config.logLevel}`);
+    logger.info('--- Configuration ---');
+    logger.info(`HTTP Enabled: ${config.enableHttp}`);
+    logger.info(`HTTP Port: ${config.httpPort || 'auto'}`);
+    logger.info(`Stdio Enabled: ${config.enableStdio}`);
+    logger.info(`Log Level: ${config.logLevel}`);
   });
   
   // Add commands to context subscriptions for proper cleanup
@@ -253,7 +236,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 function registerConfigurationHandler(): void {
   vscode.workspace.onDidChangeConfiguration(async (event) => {
     if (event.affectsConfiguration('popupmcp')) {
-      outputChannel.appendLine('Configuration changed, restarting MCP server...');
+      logger.info('Configuration changed, restarting MCP server...');
       
       try {
         // Stop existing server
@@ -269,11 +252,11 @@ function registerConfigurationHandler(): void {
         setupServerEventHandlers();
         await mcpServer.start();
         
-        outputChannel.appendLine('MCP server restarted with new configuration');
+        logger.info('MCP server restarted with new configuration');
         
       } catch (error) {
         const errorMessage = `Failed to restart MCP server: ${error instanceof Error ? error.message : String(error)}`;
-        outputChannel.appendLine(`ERROR: ${errorMessage}`);
+        logger.error(errorMessage);
         vscode.window.showErrorMessage(errorMessage);
       }
     }

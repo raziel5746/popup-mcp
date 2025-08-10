@@ -50,13 +50,15 @@ beforeEach(() => {
   // Clear all mocks before each test
   jest.clearAllMocks();
   
-  // Mock console methods to reduce noise in test output
+  // Mock logger methods to reduce noise in test output
+  // Note: We're also mocking console methods since logger internally uses them for development
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'error').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.spyOn(console, 'debug').mockImplementation(() => {});
 });
 
 afterEach(() => {
-  // Restore console methods after each test
+  // Restore all mocked methods after each test
   jest.restoreAllMocks();
 });

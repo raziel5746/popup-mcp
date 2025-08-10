@@ -3,6 +3,7 @@
  */
 
 import { RequestHandler } from '../../../src/backend/requestHandler';
+import { logger } from '../../../src/utils/logger';
 
 describe('RequestHandler', () => {
   let handler: RequestHandler;
@@ -280,9 +281,8 @@ describe('RequestHandler', () => {
 
   describe('Error Handling', () => {
     it('should handle internal errors gracefully', async () => {
-      // Mock console.error to avoid test output noise
-      const originalError = console.error;
-      console.error = jest.fn();
+      // Mock logger.error to avoid test output noise
+      const mockError = jest.spyOn(logger, 'error').mockImplementation();
       
       // This should trigger internal error handling
       const response = await handler.handleRequest('{}');
@@ -291,8 +291,8 @@ describe('RequestHandler', () => {
       expect(parsed.error).toBeDefined();
       expect(parsed.error.code).toBe(-32602); // Validation error for missing fields
       
-      // Restore console.error
-      console.error = originalError;
+      // Restore logger.error
+      mockError.mockRestore();
     });
   });
 });

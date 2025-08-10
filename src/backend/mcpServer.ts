@@ -7,6 +7,7 @@ import * as http from 'http';
 import { EventEmitter } from 'events';
 import { TransportConfig, ServerHealth, TransportError } from '../types';
 import { RequestHandler } from './requestHandler';
+import { logger } from '../utils/logger';
 
 /**
  * MCP Server class that handles both HTTP and stdio transports
@@ -32,7 +33,7 @@ export class McpServer extends EventEmitter {
    */
   async start(): Promise<void> {
     try {
-      console.log('[MCP Server] Starting with config:', this.config);
+      logger.info('MCP Server starting with config:', this.config);
 
       // Setup HTTP transport if enabled
       if (this.config.http?.enabled) {
@@ -48,12 +49,12 @@ export class McpServer extends EventEmitter {
         throw new TransportError('At least one transport must be enabled');
       }
 
-      console.log('[MCP Server] Started successfully');
+      logger.info('MCP Server started successfully');
       this.emit('started');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.lastError = errorMessage;
-      console.error('[MCP Server] Failed to start:', error);
+      logger.error('MCP Server failed to start:', error);
       this.emit('error', error);
       throw error;
     }
@@ -64,7 +65,7 @@ export class McpServer extends EventEmitter {
    */
   async stop(): Promise<void> {
     try {
-      console.log('[MCP Server] Stopping...');
+      logger.info('MCP Server stopping...');
 
       // Stop HTTP server
       if (this.httpServer) {
@@ -84,12 +85,12 @@ export class McpServer extends EventEmitter {
         this.stdioActive = false;
       }
 
-      console.log('[MCP Server] Stopped successfully');
+      logger.info('MCP Server stopped successfully');
       this.emit('stopped');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.lastError = errorMessage;
-      console.error('[MCP Server] Error during stop:', error);
+      logger.error('MCP Server error during stop:', error);
       this.emit('error', error);
       throw error;
     }
@@ -146,7 +147,7 @@ export class McpServer extends EventEmitter {
 
         this.httpServer.listen(port, host, () => {
           const address = this.httpServer!.address() as net.AddressInfo;
-          console.log(`[MCP Server] HTTP transport listening on ${host}:${address.port}`);
+          logger.info(`HTTP transport listening on ${host}:${address.port}`);
           
           // Update config with actual port if auto-assigned
           if (this.config.http) {
@@ -159,7 +160,7 @@ export class McpServer extends EventEmitter {
         this.httpServer.on('error', (error) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
           this.lastError = `HTTP transport error: ${errorMessage}`;
-          console.error('[MCP Server] HTTP transport error:', error);
+          logger.error('HTTP transport error:', error);
           reject(new TransportError(`HTTP transport failed: ${errorMessage}`));
         });
       } catch (error) {
@@ -194,7 +195,7 @@ export class McpServer extends EventEmitter {
       });
 
       this.stdioActive = true;
-      console.log('[MCP Server] Stdio transport active');
+      logger.info('Stdio transport active');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new TransportError(`Failed to setup stdio transport: ${errorMessage}`);
@@ -234,7 +235,7 @@ export class McpServer extends EventEmitter {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Not found' }));
     } catch (error) {
-      console.error('[MCP Server] HTTP request error:', error);
+      logger.error('HTTP request error:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Internal server error' }));
     }
@@ -259,7 +260,7 @@ export class McpServer extends EventEmitter {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(response);
         } catch (error) {
-          console.error('[MCP Server] Error processing MCP request:', error);
+          logger.error('Error processing MCP request:', error);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             jsonrpc: '2.0',
@@ -269,7 +270,7 @@ export class McpServer extends EventEmitter {
         }
       });
     } catch (error) {
-      console.error('[MCP Server] MCP HTTP request error:', error);
+      logger.error('MCP HTTP request error:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Request processing failed' }));
     }
@@ -284,7 +285,7 @@ export class McpServer extends EventEmitter {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(health));
     } catch (error) {
-      console.error('[MCP Server] Health check error:', error);
+      logger.error('Health check error:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Health check failed' }));
     }
@@ -300,7 +301,7 @@ export class McpServer extends EventEmitter {
       // Send response to stdout
       process.stdout.write(response + '\n');
     } catch (error) {
-      console.error('[MCP Server] Stdio message error:', error);
+      logger.error('Stdio message error:', error);
       
       // Send error response to stdout
       const errorResponse = {

@@ -4,6 +4,7 @@
 
 import { validateRequest, validateOrigin, requestGuard } from '../../../src/backend/middleware/validator';
 import { ValidationError } from '../../../src/types';
+import { logger } from '../../../src/utils/logger';
 
 describe('Validator Middleware', () => {
   describe('validateRequest', () => {
@@ -291,21 +292,18 @@ describe('Validator Middleware', () => {
     });
 
     it('should reject valid request with invalid origin', () => {
-      // Mock console.warn to avoid test output noise
-      const originalWarn = console.warn;
-      console.warn = jest.fn();
+      // Mock logger.warn to avoid test output noise
+      const mockWarn = jest.spyOn(logger, 'warn').mockImplementation();
 
       expect(() => requestGuard(validRequest, 'http://malicious.site')).toThrow(ValidationError);
       expect(() => requestGuard(validRequest, 'http://malicious.site')).toThrow('Invalid request origin');
 
-      // Restore console.warn
-      console.warn = originalWarn;
+      // Restore logger.warn
+      mockWarn.mockRestore();
     });
 
     it('should log security violations', () => {
-      const originalWarn = console.warn;
-      const mockWarn = jest.fn();
-      console.warn = mockWarn;
+      const mockWarn = jest.spyOn(logger, 'warn').mockImplementation();
 
       try {
         requestGuard(validRequest, 'http://malicious.site');
@@ -315,8 +313,8 @@ describe('Validator Middleware', () => {
 
       expect(mockWarn).toHaveBeenCalledWith('Request guard failed:', expect.any(String));
 
-      // Restore console.warn
-      console.warn = originalWarn;
+      // Restore logger.warn
+      mockWarn.mockRestore();
     });
   });
 });

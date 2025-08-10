@@ -3,6 +3,7 @@
  */
 
 import { JSONRPCRequest, ValidationError } from '../../types';
+import { logger } from '../../utils/logger';
 
 /**
  * Validates incoming JSON-RPC requests according to MCP protocol
@@ -135,7 +136,7 @@ export function requestGuard(req: any, origin?: string): boolean {
   } catch (error) {
     // Log security violations
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn('Request guard failed:', errorMessage);
+    logger.warn('Request guard failed:', errorMessage);
     throw error;
   }
 }

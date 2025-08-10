@@ -4,6 +4,7 @@
 
 import { JSONRPCRequest, JSONRPCResponse, PopupRequest, MCPError } from '../types';
 import { validateRequest } from './middleware/validator';
+import { logger } from '../utils/logger';
 
 /**
  * Handles incoming MCP requests and routes them appropriately
@@ -55,7 +56,7 @@ export class RequestHandler {
           );
       }
     } catch (error) {
-      console.error('Unexpected error in request handler:', error);
+      logger.error('Unexpected error in request handler:', error);
       return this.createErrorResponse(null, -32603, 'Internal error');
     }
   }
@@ -80,7 +81,7 @@ export class RequestHandler {
       // TODO: In future stories, this will route to the appropriate VS Code instance
       // For now, we'll return a mock response to show the server is working
       
-      console.log(`[MCP] Popup request received:`, {
+      logger.info('Popup request received:', {
         id: request.id,
         internalId: internalRequestId,
         workspace: popupRequest.workspacePath,
@@ -95,7 +96,7 @@ export class RequestHandler {
       });
 
     } catch (error) {
-      console.error('Error handling triggerPopup:', error);
+      logger.error('Error handling triggerPopup:', error);
       return this.createErrorResponse(
         request.id,
         -32000,
@@ -119,7 +120,7 @@ export class RequestHandler {
 
       return this.createSuccessResponse(request.id, health);
     } catch (error) {
-      console.error('Error handling health check:', error);
+      logger.error('Error handling health check:', error);
       return this.createErrorResponse(
         request.id,
         -32000,
