@@ -5,10 +5,14 @@
 
 import * as vscode from 'vscode';
 import { McpServer } from './backend/mcpServer';
-import { TransportConfig, ExtensionConfig } from './types';
+import { TransportConfig, ExtensionConfig, PopupRequest } from './types';
 import { logger } from './utils/logger';
+import { PopupWebview } from './components/PopupWebview';
+import { ChimePlayer } from './utils/chimePlayer';
 
 let mcpServer: McpServer | undefined;
+let popupWebview: PopupWebview | undefined;
+let chimePlayer: ChimePlayer | undefined;
 
 /**
  * Extension activation function - called when VS Code starts or extension is activated
@@ -22,6 +26,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     
     // Load configuration
     const config = loadConfiguration();
+    
+    // Initialize popup components
+    popupWebview = new PopupWebview(context.extensionUri, context);
+    chimePlayer = new ChimePlayer(context.extensionUri, context);
     
     // Create and start MCP server
     const transportConfig = createTransportConfig(config);
@@ -66,6 +74,17 @@ export async function deactivate(): Promise<void> {
       mcpServer = undefined;
     }
     
+    // Dispose popup components
+    if (popupWebview) {
+      popupWebview.dispose();
+      popupWebview = undefined;
+    }
+    
+    if (chimePlayer) {
+      chimePlayer.dispose();
+      chimePlayer = undefined;
+    }
+    
     logger.info('Extension deactivated successfully');
     logger.dispose();
     
@@ -81,7 +100,7 @@ function loadConfiguration(): ExtensionConfig {
   const config = vscode.workspace.getConfiguration('popupmcp');
   
   return {
-    chimeEnabled: true, // Will be implemented in future stories
+    chimeEnabled: config.get('chimeEnabled', true),
     popupTimeout: 30, // Will be implemented in future stories
     httpPort: config.get('httpPort', 0),
     enableStdio: config.get('enableStdio', true),
@@ -226,8 +245,52 @@ function registerCommands(context: vscode.ExtensionContext): void {
     logger.info(`Log Level: ${config.logLevel}`);
   });
   
+  // Test popup command
+  const testPopupCommand = vscode.commands.registerCommand('popupmcp.testPopup', async () => {
+    try {
+      if (!popupWebview || !chimePlayer) {
+        vscode.window.showErrorMessage('Popup components not initialized');
+        return;
+      }
+      
+      // Create sample popup request
+      const sampleRequest: PopupRequest = {
+        requestId: `test-${Date.now()}`,
+        workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'No workspace',
+        title: 'Test Popup',
+        message: 'This is a sample popup to test the functionality.\n\nYou can click a button or enter custom text.',
+        options: [
+          { label: 'Yes', value: 'yes' },
+          { label: 'No', value: 'no' },
+          { label: 'Maybe', value: 'maybe' }
+        ]
+      };
+      
+      // Play chime if enabled
+      await chimePlayer.playChime();
+      
+      // Show popup and handle response
+      await popupWebview.renderPopup(sampleRequest, (response) => {
+        logger.info(`Test popup response: ${response.selectedValue}`);
+        vscode.window.showInformationMessage(
+          `Popup response received: "${response.selectedValue}"`,
+          'Show Output'
+        ).then(selection => {
+          if (selection === 'Show Output') {
+            logger.show();
+          }
+        });
+      });
+      
+    } catch (error) {
+      const errorMessage = `Failed to show test popup: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMessage);
+      vscode.window.showErrorMessage(errorMessage);
+    }
+  });
+  
   // Add commands to context subscriptions for proper cleanup
-  context.subscriptions.push(healthCheckCommand, statusCommand);
+  context.subscriptions.push(healthCheckCommand, statusCommand, testPopupCommand);
 }
 
 /**

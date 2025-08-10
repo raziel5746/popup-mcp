@@ -33,6 +33,11 @@
         "command": "popupmcp.showServerStatus",
         "title": "Show Server Status",
         "category": "Popup MCP"
+      },
+      {
+        "command": "popupmcp.testPopup",
+        "title": "Test Sample Popup",
+        "category": "Popup MCP"
       }
     ],
     "configuration": {
@@ -60,6 +65,11 @@
           "enum": ["debug", "info", "warn", "error"],
           "default": "info",
           "description": "Logging level for MCP server"
+        },
+        "popupmcp.chimeEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable notification chime sound when popups appear"
         }
       }
     }
