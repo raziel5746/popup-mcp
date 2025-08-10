@@ -139,7 +139,7 @@ npm install --dry-run
 npx tsc --noEmit
 
 # 8. Run project structure validation
-node tests/integration/project-structure.test.js
+npm test -- tests/integration/project-structure.test.ts
 ```
 
 #### VS Code Extension Development Test
