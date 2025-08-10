@@ -5,12 +5,33 @@
 import { JSONRPCRequest, JSONRPCResponse, PopupRequest, MCPError } from '../types';
 import { validateRequest } from './middleware/validator';
 import { logger } from '../utils/logger';
+import { ResponseHandler } from './responseHandler';
 
 /**
  * Handles incoming MCP requests and routes them appropriately
  */
 export class RequestHandler {
   private requestCounter = 0;
+  private responseHandler: ResponseHandler;
+  private popupTriggerCallback?: (request: PopupRequest, responseHandler: ResponseHandler) => Promise<void>;
+
+  constructor() {
+    this.responseHandler = new ResponseHandler();
+  }
+
+  /**
+   * Sets the callback for triggering popups (called by extension.ts)
+   */
+  setPopupTriggerCallback(callback: (request: PopupRequest, responseHandler: ResponseHandler) => Promise<void>): void {
+    this.popupTriggerCallback = callback;
+  }
+
+  /**
+   * Gets the response handler instance
+   */
+  getResponseHandler(): ResponseHandler {
+    return this.responseHandler;
+  }
 
   /**
    * Processes raw request data and returns formatted response
@@ -43,7 +64,7 @@ export class RequestHandler {
       // Route to appropriate handler
       switch (request.method) {
         case 'triggerPopup':
-          return await this.handleTriggerPopup(request);
+          return await this.handleTriggerPopup(request, origin);
         
         case 'healthCheck':
           return await this.handleHealthCheck(request);
@@ -64,7 +85,7 @@ export class RequestHandler {
   /**
    * Handles triggerPopup method
    */
-  private async handleTriggerPopup(request: JSONRPCRequest): Promise<string> {
+  private async handleTriggerPopup(request: JSONRPCRequest, origin?: string): Promise<string> {
     try {
       // Generate internal request ID for tracking
       const internalRequestId = this.generateRequestId();
@@ -78,9 +99,6 @@ export class RequestHandler {
         options: request.params.options
       };
 
-      // TODO: In future stories, this will route to the appropriate VS Code instance
-      // For now, we'll return a mock response to show the server is working
-      
       logger.info('Popup request received:', {
         id: request.id,
         internalId: internalRequestId,
@@ -88,12 +106,37 @@ export class RequestHandler {
         title: popupRequest.title
       });
 
-      // For now, return acknowledgment that request was queued
-      // In future stories, this will integrate with actual popup UI
-      return this.createSuccessResponse(request.id, {
-        status: 'queued',
-        requestId: internalRequestId
+      // Check if popup trigger callback is set
+      if (!this.popupTriggerCallback) {
+        logger.error('No popup trigger callback set - extension may not be fully initialized');
+        return this.createErrorResponse(
+          request.id,
+          -32000,
+          'Popup system not available',
+          { error: 'Extension not properly initialized' }
+        );
+      }
+
+      // Determine transport type
+      const transport = request.params.workspacePath ? 'http' : 'stdio';
+      
+      // Register pending response and get promise
+      const responsePromise = this.responseHandler.registerPendingResponse(
+        internalRequestId,
+        request.id,
+        transport,
+        // Pass origin for HTTP requests (for CORS validation)
+        transport === 'http' ? origin : undefined
+      );
+
+      // Trigger the popup (non-blocking)
+      this.popupTriggerCallback(popupRequest, this.responseHandler).catch(error => {
+        logger.error('Error triggering popup:', error);
+        // The response handler will handle cleanup via timeout
       });
+
+      // Wait for user response
+      return await responsePromise;
 
     } catch (error) {
       logger.error('Error handling triggerPopup:', error);
@@ -170,5 +213,13 @@ export class RequestHandler {
     const timestamp = Date.now();
     const counter = ++this.requestCounter;
     return `mcp_${timestamp}_${counter}`;
+  }
+
+  /**
+   * Disposes of the request handler and cleans up resources
+   */
+  dispose(): void {
+    this.responseHandler.dispose();
+    this.popupTriggerCallback = undefined;
   }
 }

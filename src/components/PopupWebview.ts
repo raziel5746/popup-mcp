@@ -25,42 +25,94 @@ export class PopupWebview {
     request: PopupRequest, 
     onResponse: (response: PopupResponse) => void
   ): Promise<void> {
-    this.responseCallback = onResponse;
-
-    // Create webview panel
-    this.panel = vscode.window.createWebviewPanel(
-      'popupMcp',
-      request.title,
-      vscode.ViewColumn.One,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(this.extensionUri, 'src', 'views'),
-          vscode.Uri.joinPath(this.extensionUri, 'assets')
-        ]
+    try {
+      // Validate request
+      if (!request || !request.requestId) {
+        throw new Error('Invalid popup request: missing requestId');
       }
-    );
+      if (!request.title || !request.message) {
+        throw new Error('Invalid popup request: missing title or message');
+      }
+      if (!request.options || !Array.isArray(request.options)) {
+        throw new Error('Invalid popup request: missing options array');
+      }
 
-    // Set webview content
-    this.panel.webview.html = this.getHtmlContent(request, this.panel.webview);
+      // Validate callback
+      if (typeof onResponse !== 'function') {
+        throw new Error('Invalid onResponse callback');
+      }
 
-    // Handle messages from webview
-    this.panel.webview.onDidReceiveMessage(
-      (message) => this.handleWebviewMessage(message, request),
-      undefined,
-      this.disposables
-    );
+      // Dispose existing panel if any
+      if (this.panel) {
+        this.dispose();
+      }
 
-    // Clean up when panel is disposed
-    this.panel.onDidDispose(
-      () => this.dispose(),
-      undefined,
-      this.disposables
-    );
+      this.responseCallback = onResponse;
 
-    // Show the panel
-    this.panel.reveal();
+      // Create webview panel with error handling
+      try {
+        this.panel = vscode.window.createWebviewPanel(
+          'popupMcp',
+          request.title,
+          vscode.ViewColumn.One,
+          {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+            localResourceRoots: [
+              vscode.Uri.joinPath(this.extensionUri, 'src', 'views'),
+              vscode.Uri.joinPath(this.extensionUri, 'assets')
+            ]
+          }
+        );
+      } catch (error) {
+        throw new Error(`Failed to create webview panel: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Set webview content with error handling
+      try {
+        this.panel.webview.html = this.getHtmlContent(request, this.panel.webview);
+      } catch (error) {
+        this.dispose();
+        throw new Error(`Failed to generate HTML content: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Handle messages from webview
+      this.panel.webview.onDidReceiveMessage(
+        (message) => this.handleWebviewMessage(message, request),
+        undefined,
+        this.disposables
+      );
+
+      // Clean up when panel is disposed
+      this.panel.onDidDispose(
+        () => this.dispose(),
+        undefined,
+        this.disposables
+      );
+
+      // Show the panel with error handling
+      try {
+        this.panel.reveal();
+      } catch (error) {
+        this.dispose();
+        throw new Error(`Failed to show webview panel: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+    } catch (error) {
+      // Clean up on error
+      this.dispose();
+      
+      // Log error
+      console.error('Error rendering popup:', error);
+      
+      // Show user notification
+      vscode.window.showErrorMessage(
+        `Failed to render popup: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      // Re-throw error for caller to handle
+      throw error;
+    }
   }
 
   /**
@@ -237,34 +289,90 @@ export class PopupWebview {
 
       <script>
         (function() {
-          const vscode = acquireVsCodeApi();
-          const buttons = document.querySelectorAll('.popup-button');
-          const textInput = document.getElementById('freeTextInput');
+          try {
+            const vscode = acquireVsCodeApi();
+            const buttons = document.querySelectorAll('.popup-button');
+            const textInput = document.getElementById('freeTextInput');
 
-          // Handle button clicks
-          buttons.forEach(button => {
-            button.addEventListener('click', () => {
-              const value = button.getAttribute('data-value');
-              sendResponse(value);
-            });
-          });
-
-          // Handle Enter key in text input
-          textInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && e.target.value.trim()) {
-              sendResponse(e.target.value.trim());
+            if (!textInput) {
+              throw new Error('Text input element not found');
             }
-          });
 
-          function sendResponse(value) {
-            vscode.postMessage({
-              command: 'response',
-              value: value
+            // Handle button clicks
+            buttons.forEach(button => {
+              button.addEventListener('click', () => {
+                try {
+                  const value = button.getAttribute('data-value');
+                  if (!value) {
+                    throw new Error('Button has no data-value attribute');
+                  }
+                  sendResponse(value);
+                } catch (error) {
+                  sendError('Button click error: ' + error.message);
+                }
+              });
             });
-          }
 
-          // Focus the text input on load
-          textInput.focus();
+            // Handle Enter key in text input
+            textInput.addEventListener('keydown', (e) => {
+              try {
+                if (e.key === 'Enter' && e.target.value.trim()) {
+                  sendResponse(e.target.value.trim());
+                }
+              } catch (error) {
+                sendError('Text input error: ' + error.message);
+              }
+            });
+
+            function sendResponse(value) {
+              try {
+                if (!value || typeof value !== 'string') {
+                  throw new Error('Invalid response value');
+                }
+                
+                vscode.postMessage({
+                  command: 'response',
+                  value: value
+                });
+              } catch (error) {
+                sendError('Send response error: ' + error.message);
+              }
+            }
+
+            function sendError(errorMessage) {
+              try {
+                vscode.postMessage({
+                  command: 'error',
+                  error: errorMessage
+                });
+              } catch (error) {
+                console.error('Failed to send error message:', error);
+              }
+            }
+
+            // Global error handler
+            window.addEventListener('error', (e) => {
+              sendError('JavaScript error: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+            });
+
+            window.addEventListener('unhandledrejection', (e) => {
+              sendError('Unhandled promise rejection: ' + e.reason);
+            });
+
+            // Focus the text input on load
+            textInput.focus();
+          } catch (error) {
+            console.error('Popup initialization error:', error);
+            // Try to send error if vscode is available
+            try {
+              acquireVsCodeApi().postMessage({
+                command: 'error',
+                error: 'Popup initialization failed: ' + error.message
+              });
+            } catch (e) {
+              console.error('Failed to send initialization error:', e);
+            }
+          }
         })();
       </script>
     </body>
@@ -275,13 +383,48 @@ export class PopupWebview {
    * Handles messages received from the webview
    */
   private handleWebviewMessage(message: any, request: PopupRequest): void {
-    if (message.command === 'response' && this.responseCallback) {
-      const response: PopupResponse = {
-        requestId: request.requestId,
-        selectedValue: message.value
-      };
+    try {
+      if (message.command === 'response' && this.responseCallback) {
+        // Validate message data
+        if (!message.value || typeof message.value !== 'string') {
+          throw new Error('Invalid response value received from webview');
+        }
+
+        const response: PopupResponse = {
+          requestId: request.requestId,
+          selectedValue: message.value
+        };
+        
+        // Call response callback with error handling
+        try {
+          this.responseCallback(response);
+        } catch (error) {
+          // Log error but still dispose the webview
+          console.error('Error in response callback:', error);
+          
+          // Show user notification
+          vscode.window.showErrorMessage(
+            `Error processing popup response: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+        
+        this.dispose();
+      } else if (message.command === 'error') {
+        // Handle errors from the webview
+        const errorMsg = `Webview error: ${message.error || 'Unknown error'}`;
+        console.error(errorMsg);
+        
+        vscode.window.showErrorMessage(errorMsg);
+        this.dispose();
+      } else {
+        // Unknown message type
+        console.warn('Unknown message received from webview:', message);
+      }
+    } catch (error) {
+      const errorMsg = `Error handling webview message: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMsg);
       
-      this.responseCallback(response);
+      vscode.window.showErrorMessage(errorMsg);
       this.dispose();
     }
   }
