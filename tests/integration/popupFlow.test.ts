@@ -8,6 +8,57 @@ import { PopupWebview } from '../../src/components/PopupWebview';
 import { ChimePlayer } from '../../src/utils/chimePlayer';
 import { PopupRequest, PopupResponse } from '../../src/types';
 
+// Mock child_process for chime player tests
+jest.mock('child_process', () => ({
+  spawn: jest.fn()
+}));
+
+// Mock fs for chime player tests
+jest.mock('fs', () => ({
+  existsSync: jest.fn()
+}));
+
+// Enhanced VS Code mocks for this test file
+jest.mock('vscode', () => ({
+  window: {
+    createOutputChannel: jest.fn(() => ({
+      appendLine: jest.fn(),
+      show: jest.fn(),
+      dispose: jest.fn()
+    })),
+    showInformationMessage: jest.fn(),
+    showErrorMessage: jest.fn(),
+    showWarningMessage: jest.fn(),
+    createWebviewPanel: jest.fn()
+  },
+  workspace: {
+    getConfiguration: jest.fn(() => ({
+      get: jest.fn((key: string, defaultValue?: any) => defaultValue)
+    })),
+    onDidChangeConfiguration: jest.fn(),
+    workspaceFolders: []
+  },
+  commands: {
+    registerCommand: jest.fn(),
+    executeCommand: jest.fn()
+  },
+  Uri: {
+    file: jest.fn((path: string) => ({ fsPath: path, path })),
+    joinPath: jest.fn((...paths: any[]) => ({ fsPath: paths.join('/'), path: paths.join('/') }))
+  },
+  ViewColumn: {
+    One: 1,
+    Two: 2,
+    Three: 3
+  },
+  ExtensionMode: {
+    Test: 3,
+    Development: 2,
+    Production: 1
+  },
+  ExtensionContext: jest.fn()
+}), { virtual: true });
+
 describe('Popup Flow Integration Tests', () => {
   let extensionContext: vscode.ExtensionContext;
   let popupWebview: PopupWebview;
@@ -58,9 +109,13 @@ describe('Popup Flow Integration Tests', () => {
   });
 
   afterEach(() => {
-    // Clean up
-    popupWebview.dispose();
-    chimePlayer.dispose();
+    // Clean up with null checks
+    if (popupWebview) {
+      popupWebview.dispose();
+    }
+    if (chimePlayer) {
+      chimePlayer.dispose();
+    }
   });
 
   describe('AC1: Popup renders as HTML/CSS/TS in new tab', () => {
@@ -179,28 +234,38 @@ describe('Popup Flow Integration Tests', () => {
 
   describe('AC4: Chime sound playback', () => {
     it('should play chime when enabled', async () => {
+      const fs = require('fs');
+      const { spawn } = require('child_process');
+      
       // Mock VS Code configuration
-      const mockGetConfiguration = jest.spyOn(vscode.workspace, 'getConfiguration');
-      mockGetConfiguration.mockReturnValue({
+      (vscode.workspace.getConfiguration as jest.Mock).mockReturnValue({
         get: jest.fn((key: string, defaultValue?: any) => {
           if (key === 'chimeEnabled') return true;
+          if (key === 'chimeVolume') return 50;
           return defaultValue;
         })
-      } as any);
+      });
 
-      const mockShowInformationMessage = jest.spyOn(vscode.window, 'showInformationMessage');
-      mockShowInformationMessage.mockResolvedValue(undefined);
+      // Mock fs.existsSync to return true (chime file exists)
+      fs.existsSync = jest.fn().mockReturnValue(true);
 
-      const mockExecuteCommand = jest.spyOn(vscode.commands, 'executeCommand');
-      mockExecuteCommand.mockResolvedValue(undefined);
+      // Mock spawn to simulate successful audio playback
+      const mockProcess = {
+        stdout: { on: jest.fn() },
+        stderr: { on: jest.fn() },
+        on: jest.fn((event, callback) => {
+          if (event === 'close') {
+            setTimeout(() => callback(0), 10); // Simulate successful completion
+          }
+        })
+      };
+      spawn.mockReturnValue(mockProcess);
 
       await chimePlayer.playChime();
 
-      expect(mockShowInformationMessage).toHaveBeenCalledWith('🔔', { modal: false });
-
-      mockGetConfiguration.mockRestore();
-      mockShowInformationMessage.mockRestore();
-      mockExecuteCommand.mockRestore();
+      // Verify that audio playback was attempted
+      expect(spawn).toHaveBeenCalled();
+      expect(fs.existsSync).toHaveBeenCalled();
     });
 
     it('should not play chime when disabled', async () => {
@@ -364,7 +429,7 @@ describe('Popup Flow Integration Tests', () => {
   });
 
   describe('Component lifecycle', () => {
-    it('should dispose properly', () => {
+    it('should dispose properly', async () => {
       const mockPanel = {
         webview: { html: '', onDidReceiveMessage: jest.fn(), postMessage: jest.fn() },
         onDidDispose: jest.fn(),
@@ -372,8 +437,20 @@ describe('Popup Flow Integration Tests', () => {
         dispose: jest.fn()
       };
 
-      jest.spyOn(vscode.window, 'createWebviewPanel').mockReturnValue(mockPanel as any);
+      (vscode.window.createWebviewPanel as jest.Mock).mockReturnValue(mockPanel);
 
+      // First create a popup to have something to dispose
+      const sampleRequest: PopupRequest = {
+        requestId: 'dispose-test',
+        workspacePath: '/test',
+        title: 'Dispose Test',
+        message: 'Testing disposal',
+        options: [{ label: 'OK', value: 'ok' }]
+      };
+
+      await popupWebview.renderPopup(sampleRequest, () => {});
+      
+      // Now dispose and verify
       popupWebview.dispose();
       expect(mockPanel.dispose).toHaveBeenCalled();
     });

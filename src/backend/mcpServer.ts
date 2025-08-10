@@ -85,6 +85,9 @@ export class McpServer extends EventEmitter {
         this.stdioActive = false;
       }
 
+      // Dispose request handler
+      this.requestHandler.dispose();
+
       logger.info('MCP Server stopped successfully');
       this.emit('stopped');
     } catch (error) {
@@ -120,6 +123,13 @@ export class McpServer extends EventEmitter {
     const stdioRunning = this.config.stdio?.enabled ? this.stdioActive : true;
     
     return !!(httpRunning && stdioRunning);
+  }
+
+  /**
+   * Gets the request handler instance for setting up callbacks
+   */
+  getRequestHandler(): RequestHandler {
+    return this.requestHandler;
   }
 
   /**

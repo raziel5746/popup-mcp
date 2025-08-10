@@ -64,7 +64,7 @@ export class ChimePlayer {
   private async playWavFile(): Promise<void> {
     const config = this.getExtensionConfig();
     const volume = config.chimeVolume / 100;
-    const soundPath = path.join(this.extensionUri.fsPath, 'assets', 'chime.wav');
+    const soundPath = path.join(this.extensionUri.fsPath, 'src', 'assets', 'chime.wav');
 
     logger.info(`[Sound] Attempting playback at: ${soundPath}`);
 

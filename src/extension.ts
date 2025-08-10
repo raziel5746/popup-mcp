@@ -9,6 +9,7 @@ import { TransportConfig, ExtensionConfig, PopupRequest } from './types';
 import { logger } from './utils/logger';
 import { PopupWebview } from './components/PopupWebview';
 import { ChimePlayer } from './utils/chimePlayer';
+import { ResponseHandler } from './backend/responseHandler';
 
 let mcpServer: McpServer | undefined;
 let popupWebview: PopupWebview | undefined;
@@ -40,6 +41,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     
     // Start the server
     await mcpServer.start();
+    
+    // Set up popup trigger callback
+    setupPopupIntegration();
     
     // Register commands
     registerCommands(context);
@@ -124,6 +128,59 @@ function createTransportConfig(config: ExtensionConfig): TransportConfig {
       enabled: true
     } : undefined
   };
+}
+
+/**
+ * Sets up popup integration between MCP server and webview components
+ */
+function setupPopupIntegration(): void {
+  if (!mcpServer || !popupWebview || !chimePlayer) {
+    logger.error('Cannot setup popup integration - components not initialized');
+    return;
+  }
+
+  const requestHandler = mcpServer.getRequestHandler();
+  
+  // Set up popup trigger callback
+  requestHandler.setPopupTriggerCallback(async (request: PopupRequest, responseHandler: ResponseHandler) => {
+    try {
+      logger.info('Triggering popup for request:', request.requestId);
+      
+      // Play chime if enabled
+      await chimePlayer!.playChime();
+      
+      // Show popup and handle response
+      await popupWebview!.renderPopup(request, async (response) => {
+        try {
+          logger.info('Popup response received:', response);
+          
+          // Route response back via MCP
+          await responseHandler.handlePopupResponse(response);
+          
+          logger.info('Response successfully routed back to AI');
+        } catch (error) {
+          logger.error('Error routing popup response:', error);
+          
+          // Show error notification to user
+          vscode.window.showErrorMessage(
+            `Failed to send popup response: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      });
+      
+    } catch (error) {
+      logger.error('Error triggering popup:', error);
+      
+      // Show error notification to user
+      vscode.window.showErrorMessage(
+        `Failed to show popup: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      throw error; // Re-throw so the request handler can handle it
+    }
+  });
+  
+  logger.info('Popup integration setup complete');
 }
 
 /**
@@ -315,6 +372,9 @@ function registerConfigurationHandler(): void {
         
         setupServerEventHandlers();
         await mcpServer.start();
+        
+        // Re-setup popup integration
+        setupPopupIntegration();
         
         logger.info('MCP server restarted with new configuration');
         

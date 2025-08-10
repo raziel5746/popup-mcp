@@ -131,7 +131,17 @@ describe('RequestHandler', () => {
   });
 
   describe('Trigger Popup Method', () => {
-    it('should handle valid triggerPopup request', async () => {
+    it('should handle valid triggerPopup request with callback', async () => {
+      // Mock popup trigger callback that responds immediately
+      handler.setPopupTriggerCallback(async (request, responseHandler) => {
+        // Simulate user clicking "yes"
+        const response = {
+          requestId: request.requestId,
+          selectedValue: 'yes'
+        };
+        await responseHandler.handlePopupResponse(response);
+      });
+
       const popupRequest = JSON.stringify({
         jsonrpc: '2.0',
         method: 'triggerPopup',
@@ -152,9 +162,33 @@ describe('RequestHandler', () => {
       
       expect(parsed.jsonrpc).toBe('2.0');
       expect(parsed.result).toBeDefined();
-      expect(parsed.result.status).toBe('queued');
-      expect(parsed.result.requestId).toBeDefined();
+      expect(parsed.result.selectedValue).toBe('yes');
       expect(parsed.id).toBe('popup-1');
+    });
+
+    it('should return error when no popup callback is set', async () => {
+      const popupRequest = JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'triggerPopup',
+        params: {
+          workspacePath: '/test/workspace',
+          title: 'Test Popup',
+          message: 'This is a test',
+          options: [
+            { label: 'Yes', value: 'yes' }
+          ]
+        },
+        id: 'popup-no-callback'
+      });
+      
+      const response = await handler.handleRequest(popupRequest);
+      const parsed = JSON.parse(response);
+      
+      expect(parsed.jsonrpc).toBe('2.0');
+      expect(parsed.error).toBeDefined();
+      expect(parsed.error.code).toBe(-32000);
+      expect(parsed.error.message).toContain('Popup system not available');
+      expect(parsed.id).toBe('popup-no-callback');
     });
 
     it('should reject triggerPopup without required params', async () => {
@@ -235,6 +269,19 @@ describe('RequestHandler', () => {
     });
 
     it('should generate unique request IDs', async () => {
+      let capturedRequests: any[] = [];
+      
+      // Mock popup trigger callback that captures request IDs
+      handler.setPopupTriggerCallback(async (request, responseHandler) => {
+        capturedRequests.push(request);
+        // Simulate user response
+        const response = {
+          requestId: request.requestId,
+          selectedValue: 'ok'
+        };
+        await responseHandler.handlePopupResponse(response);
+      });
+
       const popupRequest = {
         jsonrpc: '2.0',
         method: 'triggerPopup',
@@ -248,15 +295,23 @@ describe('RequestHandler', () => {
       };
 
       // Make two identical requests
-      const response1 = await handler.handleRequest(JSON.stringify(popupRequest));
-      const response2 = await handler.handleRequest(JSON.stringify(popupRequest));
+      const [response1, response2] = await Promise.all([
+        handler.handleRequest(JSON.stringify({...popupRequest, id: 'popup-test-1'})),
+        handler.handleRequest(JSON.stringify({...popupRequest, id: 'popup-test-2'}))
+      ]);
       
       const parsed1 = JSON.parse(response1);
       const parsed2 = JSON.parse(response2);
       
-      expect(parsed1.result.requestId).toBeDefined();
-      expect(parsed2.result.requestId).toBeDefined();
-      expect(parsed1.result.requestId).not.toBe(parsed2.result.requestId);
+      // Verify responses were successful
+      expect(parsed1.result.selectedValue).toBe('ok');
+      expect(parsed2.result.selectedValue).toBe('ok');
+      
+      // Verify unique request IDs were generated
+      expect(capturedRequests).toHaveLength(2);
+      expect(capturedRequests[0].requestId).toBeDefined();
+      expect(capturedRequests[1].requestId).toBeDefined();
+      expect(capturedRequests[0].requestId).not.toBe(capturedRequests[1].requestId);
     });
   });
 
