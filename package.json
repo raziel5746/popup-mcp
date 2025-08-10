@@ -1,0 +1,123 @@
+{
+  "name": "popup-mcp",
+  "displayName": "Popup MCP Extension",
+  "description": "VS Code extension implementing MCP protocol for AI assistant popup interactions",
+  "version": "0.1.0",
+  "publisher": "raz-labs",
+  "engines": {
+    "vscode": "^1.70.0",
+    "node": ">=20.0.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "ai",
+    "popup",
+    "assistant",
+    "protocol"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "popupmcp.checkHealth",
+        "title": "Check MCP Server Health",
+        "category": "Popup MCP"
+      },
+      {
+        "command": "popupmcp.showServerStatus",
+        "title": "Show Server Status",
+        "category": "Popup MCP"
+      },
+      {
+        "command": "popupmcp.testPopup",
+        "title": "Test Sample Popup",
+        "category": "Popup MCP"
+      }
+    ],
+    "configuration": {
+      "title": "Popup MCP",
+      "properties": {
+        "popupmcp.httpPort": {
+          "type": "number",
+          "default": 0,
+          "description": "HTTP port for MCP server (0 = auto-assign)",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "popupmcp.enableStdio": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable stdio transport for MCP communication"
+        },
+        "popupmcp.enableHttp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable HTTP transport for MCP communication"
+        },
+        "popupmcp.logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "Logging level for MCP server"
+        },
+        "popupmcp.chimeEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable notification chime sound when popups appear"
+        },
+        "popupmcp.chimeVolume": {
+          "type": "number",
+          "default": 50,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Chime volume level (0-100)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build": "npm run compile",
+    "test": "jest",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:e2e": "playwright test",
+    "lint": "eslint src --ext ts",
+    "lint:fix": "eslint src --ext ts --fix",
+    "package": "vsce package",
+    "deploy": "vsce publish",
+    "pretest": "npm run compile",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.70.0",
+    "@types/node": "^20.0.0",
+    "@types/jest": "^29.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/test-electron": "^2.3.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "playwright": "^1.41.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.3.0",
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raz-labs/popup-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/raz-labs/popup-mcp/issues"
+  },
+  "homepage": "https://github.com/raz-labs/popup-mcp#readme",
+  "license": "MIT"
+}
