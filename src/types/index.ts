@@ -57,14 +57,22 @@ export interface JSONRPCRequest {
   /** Method name (e.g., "triggerPopup") */
   method: string;
   /** Request parameters */
+  params: any;
+  /** Request identifier */
+  id: string;
+}
+
+/**
+ * Specific request structure for triggerPopup method
+ */
+export interface TriggerPopupRequest extends JSONRPCRequest {
+  method: 'triggerPopup';
   params: {
     workspacePath: string;
     title: string;
     message: string;
     options: Array<{ label: string; value: string }>;
   };
-  /** Request identifier */
-  id: string;
 }
 
 /**
@@ -148,4 +156,24 @@ export class TransportError extends MCPError {
     super(message, -32001, data);
     this.name = 'TransportError';
   }
+}
+
+/**
+ * Instance role types for multi-instance coordination
+ */
+export type InstanceRole = 'server-active' | 'client-active' | 'inactive';
+
+/**
+ * Status state for extension instance coordination
+ */
+export interface StatusState {
+  /** Current role of this instance */
+  role: InstanceRole;
+  /** Whether this instance is actively handling requests */
+  isActive: boolean;
+  /** Current server instance information */
+  serverInfo?: {
+    instanceId: string;
+    httpPort: number;
+  };
 }

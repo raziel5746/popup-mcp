@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
+// import * as path from 'path'; // Currently unused
 import { PopupRequest, PopupResponse } from '../types';
 
 /**
@@ -10,6 +10,7 @@ export class PopupWebview {
   private panel: vscode.WebviewPanel | undefined;
   private disposables: vscode.Disposable[] = [];
   private responseCallback?: (response: PopupResponse) => void;
+  private onPopupReady?: () => void;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -20,10 +21,14 @@ export class PopupWebview {
    * Renders a popup in a new VS Code tab
    * @param request - PopupRequest containing title, message, options
    * @param onResponse - Callback for user response
+   * @param onReady - Optional callback when popup is ready/visible
+   * @param extensionWorkspacePath - Optional workspace path detected by the extension for comparison
    */
   public async renderPopup(
     request: PopupRequest, 
-    onResponse: (response: PopupResponse) => void
+    onResponse: (response: PopupResponse) => void,
+    onReady?: () => void,
+    extensionWorkspacePath?: string
   ): Promise<void> {
     try {
       // Validate request
@@ -48,6 +53,7 @@ export class PopupWebview {
       }
 
       this.responseCallback = onResponse;
+      this.onPopupReady = onReady;
 
       // Create webview panel with error handling
       try {
@@ -70,7 +76,7 @@ export class PopupWebview {
 
       // Set webview content with error handling
       try {
-        this.panel.webview.html = this.getHtmlContent(request, this.panel.webview);
+        this.panel.webview.html = this.getHtmlContent(request, this.panel.webview, extensionWorkspacePath);
       } catch (error) {
         this.dispose();
         throw new Error(`Failed to generate HTML content: ${error instanceof Error ? error.message : String(error)}`);
@@ -119,9 +125,10 @@ export class PopupWebview {
    * Generates HTML content for the popup webview
    * @param request - PopupRequest data
    * @param webview - Webview instance for resource URIs
+   * @param extensionWorkspacePath - Optional workspace path detected by the extension for comparison
    * @returns HTML string
    */
-  private getHtmlContent(request: PopupRequest, webview: vscode.Webview): string {
+  private getHtmlContent(request: PopupRequest, webview: vscode.Webview, extensionWorkspacePath?: string): string {
     // Generate buttons HTML
     const buttonsHtml = request.options.map(option => 
       `<button class="popup-button" data-value="${this.escapeHtml(option.value)}">
@@ -129,8 +136,9 @@ export class PopupWebview {
       </button>`
     ).join('\n        ');
 
-    // Get workspace path for debugging (AC: 6)
-    const workspacePath = request.workspacePath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'Unknown';
+    // Get workspace paths for debugging and comparison (AC: 6)
+    const aiWorkspacePath = request.workspacePath || 'Not provided by AI';
+    const ideWorkspacePath = extensionWorkspacePath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'Unknown';
 
     return `<!DOCTYPE html>
     <html lang="en">
@@ -267,6 +275,31 @@ export class PopupWebview {
         .debug-path {
           font-family: var(--vscode-editor-font-family, 'Consolas', monospace);
           word-break: break-all;
+          margin-bottom: 12px;
+        }
+
+        .debug-path-comparison {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .debug-path-item {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .debug-path-match {
+          font-size: 10px;
+          font-weight: 600;
+          color: var(--vscode-testing-iconPassed, #4CAF50);
+        }
+
+        .debug-path-mismatch {
+          font-size: 10px;
+          font-weight: 600;
+          color: var(--vscode-testing-iconFailed, #F44336);
         }
       </style>
     </head>
@@ -282,8 +315,22 @@ export class PopupWebview {
         </div>
 
         <div class="debug-info">
-          <div class="debug-label">Workspace Path (Debug):</div>
-          <div class="debug-path">${this.escapeHtml(workspacePath)}</div>
+          <div class="debug-label">Workspace Path Comparison (Debug):</div>
+          <div class="debug-path-comparison">
+            <div class="debug-path-item">
+              <div class="debug-label">AI Assistant Provided:</div>
+              <div class="debug-path">${this.escapeHtml(aiWorkspacePath)}</div>
+            </div>
+            <div class="debug-path-item">
+              <div class="debug-label">IDE Extension Detected:</div>
+              <div class="debug-path">${this.escapeHtml(ideWorkspacePath)}</div>
+            </div>
+            <div class="debug-path-item">
+              <div class="${aiWorkspacePath !== 'Not provided by AI' && this.normalizeWorkspacePath(aiWorkspacePath) === this.normalizeWorkspacePath(ideWorkspacePath) ? 'debug-path-match' : 'debug-path-mismatch'}">
+                ${aiWorkspacePath !== 'Not provided by AI' && this.normalizeWorkspacePath(aiWorkspacePath) === this.normalizeWorkspacePath(ideWorkspacePath) ? '✓ Paths match - routing should work correctly' : '⚠ Paths differ - this may cause routing issues'}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -361,6 +408,11 @@ export class PopupWebview {
 
             // Focus the text input on load
             textInput.focus();
+            
+            // Send ready message to extension after popup is fully loaded
+            vscode.postMessage({
+              command: 'ready'
+            });
           } catch (error) {
             console.error('Popup initialization error:', error);
             // Try to send error if vscode is available
@@ -384,7 +436,10 @@ export class PopupWebview {
    */
   private handleWebviewMessage(message: any, request: PopupRequest): void {
     try {
-      if (message.command === 'response' && this.responseCallback) {
+      if (message.command === 'ready') {
+        // Popup is ready, notify extension to play chime
+        this.onPopupReady?.();
+      } else if (message.command === 'response' && this.responseCallback) {
         // Validate message data
         if (!message.value || typeof message.value !== 'string') {
           throw new Error('Invalid response value received from webview');
@@ -434,11 +489,20 @@ export class PopupWebview {
    */
   private escapeHtml(unsafe: string): string {
     return unsafe
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  /**
+   * Normalizes workspace paths for comparison (handles different path separators, etc.)
+   */
+  private normalizeWorkspacePath(workspacePath: string): string {
+    if (!workspacePath) {return '';}
+    // Convert to forward slashes and remove trailing slash
+    return workspacePath.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
   }
 
   /**
@@ -453,6 +517,7 @@ export class PopupWebview {
     this.disposables = [];
     
     this.responseCallback = undefined;
+    this.onPopupReady = undefined;
   }
 
   /**

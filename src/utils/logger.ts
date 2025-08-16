@@ -84,17 +84,17 @@ class Logger {
     // Also log to console for development/debugging
     // This ensures logs appear in both VS Code output and debug console
     switch (level) {
-      case 'error':
-        console.error(`[${this.channelName}]`, message, ...args);
-        break;
-      case 'warn':
-        console.warn(`[${this.channelName}]`, message, ...args);
-        break;
-      case 'debug':
-        console.debug(`[${this.channelName}]`, message, ...args);
-        break;
-      default:
-        console.log(`[${this.channelName}]`, message, ...args);
+    case 'error':
+      console.error(`[${this.channelName}]`, message, ...args);
+      break;
+    case 'warn':
+      console.warn(`[${this.channelName}]`, message, ...args);
+      break;
+    case 'debug':
+      console.debug(`[${this.channelName}]`, message, ...args);
+      break;
+    default:
+      console.log(`[${this.channelName}]`, message, ...args);
     }
   }
 

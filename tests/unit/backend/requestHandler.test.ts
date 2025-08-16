@@ -132,6 +132,9 @@ describe('RequestHandler', () => {
 
   describe('Trigger Popup Method', () => {
     it('should handle valid triggerPopup request with callback', async () => {
+      // Set up the handler with a matching workspace path
+      handler.setExtensionWorkspacePath('/test/workspace');
+      
       // Mock popup trigger callback that responds immediately
       handler.setPopupTriggerCallback(async (request, responseHandler) => {
         // Simulate user clicking "yes"
@@ -167,6 +170,9 @@ describe('RequestHandler', () => {
     });
 
     it('should return error when no popup callback is set', async () => {
+      // Set up workspace path to match but don't set callback
+      handler.setExtensionWorkspacePath('/test/workspace');
+      
       const popupRequest = JSON.stringify({
         jsonrpc: '2.0',
         method: 'triggerPopup',
@@ -270,6 +276,9 @@ describe('RequestHandler', () => {
 
     it('should generate unique request IDs', async () => {
       let capturedRequests: any[] = [];
+      
+      // Set up workspace path to match
+      handler.setExtensionWorkspacePath('/test/workspace');
       
       // Mock popup trigger callback that captures request IDs
       handler.setPopupTriggerCallback(async (request, responseHandler) => {

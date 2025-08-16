@@ -409,6 +409,9 @@ describe('Response Flow Integration Tests', () => {
 
   describe('AC4: Verifies response routing in single-instance setup', () => {
     it('should route response through RequestHandler correctly', async () => {
+      // Set up matching workspace path
+      requestHandler.setExtensionWorkspacePath('/test/workspace');
+      
       // Mock popup trigger callback
       let triggeredRequest: PopupRequest | undefined;
       let responseHandlerRef: ResponseHandler | undefined;
@@ -461,6 +464,9 @@ describe('Response Flow Integration Tests', () => {
 
     it('should handle multiple concurrent requests correctly', async () => {
       const responses: string[] = [];
+      
+      // Set up matching workspace path
+      requestHandler.setExtensionWorkspacePath('/test/workspace');
       
       // Mock popup trigger callback that responds immediately
       requestHandler.setPopupTriggerCallback(async (request, handler) => {
@@ -528,6 +534,9 @@ describe('Response Flow Integration Tests', () => {
 
     it('should pass HTTP origin to response handler for CORS validation', async () => {
       let capturedOrigin: string | undefined;
+      
+      // Set up matching workspace path
+      requestHandler.setExtensionWorkspacePath('/test/workspace');
       
       // Mock the ResponseHandler to capture the origin parameter
       const originalRegisterPendingResponse = requestHandler.getResponseHandler().registerPendingResponse;

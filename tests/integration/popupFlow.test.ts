@@ -352,7 +352,7 @@ describe('Popup Flow Integration Tests', () => {
       await popupWebview.renderPopup(sampleRequest, () => {});
 
       const html = mockWebview.html;
-      expect(html).toContain('Workspace Path (Debug)');
+      expect(html).toContain('Workspace Path Comparison (Debug)');
       expect(html).toContain(testWorkspacePath);
       expect(html).toContain('debug-info');
     });

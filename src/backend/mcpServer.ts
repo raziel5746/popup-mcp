@@ -5,6 +5,7 @@
 import * as net from 'net';
 import * as http from 'http';
 import { EventEmitter } from 'events';
+import WebSocket from 'ws';
 import { TransportConfig, ServerHealth, TransportError } from '../types';
 import { RequestHandler } from './requestHandler';
 import { logger } from '../utils/logger';
@@ -14,6 +15,7 @@ import { logger } from '../utils/logger';
  */
 export class McpServer extends EventEmitter {
   private httpServer?: http.Server;
+  private wsServer?: WebSocket.Server;
   private stdioActive = false;
   private requestHandler: RequestHandler;
   private startTime: number;
@@ -67,12 +69,22 @@ export class McpServer extends EventEmitter {
     try {
       logger.info('MCP Server stopping...');
 
+      // Stop WebSocket server
+      if (this.wsServer) {
+        try {
+          this.wsServer.close();
+        } catch (error) {
+          logger.error('Error closing WebSocket server:', error);
+        }
+        this.wsServer = undefined;
+      }
+
       // Stop HTTP server
       if (this.httpServer) {
         await new Promise<void>((resolve, reject) => {
           this.httpServer!.close((error) => {
-            if (error) reject(error);
-            else resolve();
+            if (error) {reject(error);}
+            else {resolve();}
           });
         });
         this.httpServer = undefined;
@@ -133,6 +145,100 @@ export class McpServer extends EventEmitter {
   }
 
   /**
+   * Sets up WebSocket server for stdio MCP server communication
+   */
+  private setupWebSocketServer(): void {
+    if (!this.httpServer) {return;}
+
+    this.wsServer = new WebSocket.Server({ 
+      server: this.httpServer,
+      path: '/ws'
+    });
+
+    this.wsServer.on('connection', (ws) => {
+      logger.info('WebSocket connection established with stdio MCP server');
+
+      ws.on('message', async (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          logger.info('Received message from stdio MCP server:', message);
+
+          if (message.type === 'popup_request') {
+            // Handle popup request from stdio MCP server
+            await this.handleStdioPopupRequest(ws, message);
+          }
+        } catch (error) {
+          logger.error('Error handling WebSocket message:', error);
+        }
+      });
+
+      ws.on('close', () => {
+        logger.info('WebSocket connection closed');
+      });
+
+      ws.on('error', (error) => {
+        logger.error('WebSocket error:', error);
+      });
+    });
+
+    logger.info('WebSocket server setup complete on /ws endpoint');
+  }
+
+  /**
+   * Handle popup request from stdio MCP server
+   */
+  private async handleStdioPopupRequest(ws: WebSocket, message: any): Promise<void> {
+    try {
+      const { requestId, options } = message;
+      
+      // Get the popup trigger callback
+      const popupCallback = this.requestHandler.getPopupTriggerCallback();
+      if (!popupCallback) {
+        ws.send(JSON.stringify({
+          type: 'response',
+          requestId,
+          error: 'Popup system not available'
+        }));
+        return;
+      }
+
+      // Create popup request
+      const popupRequest = {
+        requestId: `stdio_${requestId}`,
+        workspacePath: options.workspacePath || '', // Use provided workspace path or empty string
+        title: options.title,
+        message: options.message,
+        options: options.options || []
+      };
+
+      logger.info('Creating stdio popup request:', {
+        requestId: popupRequest.requestId,
+        workspacePath: popupRequest.workspacePath || 'Empty',
+        title: popupRequest.title
+      });
+
+      // Trigger popup and wait for response
+      await popupCallback(popupRequest, {
+        handlePopupResponse: async (response: any) => {
+          ws.send(JSON.stringify({
+            type: 'response',
+            requestId,
+            response
+          }));
+        }
+      } as any);
+
+    } catch (error) {
+      logger.error('Error handling stdio popup request:', error);
+      ws.send(JSON.stringify({
+        type: 'response',
+        requestId: message.requestId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }));
+    }
+  }
+
+  /**
    * Sets up HTTP transport
    */
   private async setupHttpTransport(): Promise<void> {
@@ -163,6 +269,9 @@ export class McpServer extends EventEmitter {
           if (this.config.http) {
             this.config.http.port = address.port;
           }
+          
+          // Setup WebSocket server for stdio MCP server communication
+          this.setupWebSocketServer();
           
           resolve();
         });
@@ -327,8 +436,8 @@ export class McpServer extends EventEmitter {
    * Gets HTTP transport status
    */
   private getHttpStatus(): 'listening' | 'error' | 'disabled' {
-    if (!this.config.http?.enabled) return 'disabled';
-    if (this.httpServer?.listening) return 'listening';
+    if (!this.config.http?.enabled) {return 'disabled';}
+    if (this.httpServer?.listening) {return 'listening';}
     return 'error';
   }
 
@@ -336,8 +445,8 @@ export class McpServer extends EventEmitter {
    * Gets stdio transport status
    */
   private getStdioStatus(): 'active' | 'error' | 'disabled' {
-    if (!this.config.stdio?.enabled) return 'disabled';
-    if (this.stdioActive) return 'active';
+    if (!this.config.stdio?.enabled) {return 'disabled';}
+    if (this.stdioActive) {return 'active';}
     return 'error';
   }
 }

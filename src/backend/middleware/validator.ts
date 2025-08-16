@@ -33,6 +33,18 @@ export function validateRequest(req: any): req is JSONRPCRequest {
       return true; // Health check requires no params
     }
 
+    if (req.method === 'initialize') {
+      return true; // Initialize method requires no specific params validation
+    }
+
+    if (req.method === 'tools/list') {
+      return true; // Tools list method requires no params
+    }
+
+    if (req.method === 'tools/call') {
+      return validateToolsCallParams(req.params);
+    }
+
     throw new ValidationError(`Unknown method: ${req.method}`);
   } catch (error) {
     if (error instanceof ValidationError) {
@@ -88,6 +100,44 @@ function validateTriggerPopupParams(params: any): boolean {
     
     if (!option.value || typeof option.value !== 'string') {
       throw new ValidationError(`Invalid option at index ${i}: missing or invalid "value"`);
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Validates parameters for tools/call method
+ */
+function validateToolsCallParams(params: any): boolean {
+  if (!params || typeof params !== 'object') {
+    throw new ValidationError('Missing or invalid params (must be object)');
+  }
+
+  // Check required fields
+  if (!params.name || typeof params.name !== 'string') {
+    throw new ValidationError('Missing or invalid "name" field');
+  }
+
+  if (!params.arguments || typeof params.arguments !== 'object') {
+    throw new ValidationError('Missing or invalid "arguments" field');
+  }
+
+  // For triggerPopup tool, validate the arguments
+  if (params.name === 'triggerPopup') {
+    const args = params.arguments;
+    
+    if (!args.title || typeof args.title !== 'string') {
+      throw new ValidationError('Missing or invalid "title" in arguments');
+    }
+    
+    if (!args.message || typeof args.message !== 'string') {
+      throw new ValidationError('Missing or invalid "message" in arguments');
+    }
+    
+    // Options are optional, but if provided, should be an array
+    if (args.options !== undefined && !Array.isArray(args.options)) {
+      throw new ValidationError('Invalid "options" in arguments (must be array)');
     }
   }
 

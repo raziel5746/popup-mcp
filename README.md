@@ -11,6 +11,215 @@ This extension provides:
 - **Zero Configuration**: Works out-of-the-box with automatic transport setup
 - **Extensible Architecture**: Clean separation between server logic and UI components
 
+## MCP Server Configuration
+
+The Popup MCP Extension exposes an MCP server that AI assistants can connect to via HTTP or stdio transports. Use the command palette commands to easily copy configuration JSON to your clipboard.
+
+### HTTP Transport Configuration
+
+For HTTP-based connections, use the **"Copy HTTP MCP Config"** command from the command palette (`Ctrl+Shift+P` → "Popup MCP: Copy HTTP Config").
+
+Example HTTP configuration:
+```json
+{
+  "mcpServers": {
+    "popup-mcp": {
+      "url": "http://localhost:9001/mcp"
+    }
+  }
+}
+```
+
+**Notes:**
+- Default port is 9001, but the extension can auto-assign an available port
+- The actual port will be shown in the VS Code output panel when the server starts
+- Use the command palette to get the correct port for your running instance
+
+### Stdio Transport Configuration
+
+For stdio-based connections, use the **"Copy Stdio MCP Config"** command from the command palette (`Ctrl+Shift+P` → "Popup MCP: Copy Stdio Config").
+
+Example stdio configuration:
+```json
+{
+  "mcpServers": {
+    "popup-mcp": {
+      "command": "node",
+      "args": ["/path/to/extension/out/backend/mcpServer.js"]
+    }
+  }
+}
+```
+
+**Notes:**
+- The path is automatically resolved to your extension installation
+- Cross-platform compatible (Windows paths are properly escaped)
+- No port configuration needed for stdio transport
+
+### AI Assistant Integration
+
+Add the configuration JSON to your AI assistant's MCP settings:
+
+- **Claude Desktop**: Add to `claude_desktop_config.json`
+- **Other MCP Clients**: Follow their specific configuration format
+
+## MCP Tools
+
+### triggerPopup Tool
+
+The extension exposes a `triggerPopup` tool that allows AI assistants to display interactive popups in VS Code.
+
+#### Tool Schema
+
+```json
+{
+  "name": "triggerPopup",
+  "description": "Trigger a popup in VS Code for user input",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Title of the popup"
+      },
+      "message": {
+        "type": "string", 
+        "description": "Main message content"
+      },
+      "options": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Array of button options for user selection",
+        "workspacePath": {
+          "type": "string",
+          "description": "Required workspace path to target specific VS Code instance. AI assistants should include their current workspace path here for proper routing in multi-instance environments."
+        }
+      }
+    },
+    "required": ["title", "message"]
+  }
+}
+```
+
+#### Example Tool Call
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "tools/call",
+  "params": {
+    "name": "triggerPopup",
+    "arguments": {
+      "title": "Confirmation Required",
+      "message": "Do you want to proceed with this action?",
+      "options": ["Yes", "No", "Cancel"]
+    }
+  }
+}
+```
+
+#### Response Format
+
+Successful response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"selectedValue\":\"Yes\",\"status\":\"success\"}"
+      }
+    ]
+  }
+}
+```
+
+Error response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "error": {
+    "code": -32602,
+    "message": "Invalid parameters: title and message are required"
+  }
+}
+```
+
+## Extension Settings
+
+The Popup MCP Extension provides several configurable settings to customize its behavior. Access these settings through VS Code's Settings UI (`Ctrl+,`) or by searching for "Popup MCP".
+
+### Available Settings
+
+#### Core Settings
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `popupmcp.httpPort` | number | 9001 | HTTP port for MCP server (9001 = default, 0 = auto-assign) |
+| `popupmcp.enableStdio` | boolean | true | Enable stdio transport for MCP communication |
+| `popupmcp.enableHttp` | boolean | true | Enable HTTP transport for MCP communication (also required for WebSocket bridge) |
+| `popupmcp.logLevel` | string | "info" | Logging level for MCP server (debug, info, warn, error) |
+
+#### User Experience Settings
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `popupmcp.chimeEnabled` | boolean | true | Enable notification chime sound when popups appear |
+| `popupmcp.chimeVolume` | number | 50 | Chime volume level (0-100) |
+
+### Settings Usage
+
+#### Accessing Settings
+
+1. **Via VS Code Settings UI**: 
+   - Open Settings (`Ctrl+,` or `Cmd+,`)
+   - Search for "Popup MCP"
+   - Modify settings as needed
+
+2. **Via settings.json**:
+   ```json
+   {
+     "popupmcp.chimeEnabled": false,
+     "popupmcp.chimeVolume": 75,
+     "popupmcp.httpPort": 8080,
+     "popupmcp.logLevel": "debug"
+   }
+   ```
+
+#### Status Bar Integration
+
+The extension provides a status bar indicator that shows:
+- **Main Status**: Current workspace and MCP server role (server/client)
+- **Chime Toggle**: Bell icon that shows chime status and allows quick toggle
+  - 🔔 = Chime enabled
+  - 🔕 = Chime disabled
+  - Click to toggle chime on/off
+
+#### Commands
+
+Access these commands via Command Palette (`Ctrl+Shift+P`):
+
+| Command | Description |
+|---------|-------------|
+| `Popup MCP: Toggle Chime` | Toggle notification chime on/off |
+| `Popup MCP: Check MCP Server Health` | Check server status and diagnostics |
+| `Popup MCP: Show Server Status` | Display detailed server information |
+| `Popup MCP: Test Sample Popup` | Test popup functionality |
+| `Popup MCP: Copy HTTP MCP Config` | Copy HTTP configuration to clipboard |
+| `Popup MCP: Copy Stdio MCP Config` | Copy stdio configuration to clipboard |
+
+#### Settings Persistence
+
+- **Workspace Settings**: Settings are saved per workspace and persist across VS Code sessions
+- **Global Settings**: Can be configured globally across all workspaces
+- **Immediate Apply**: Settings changes take effect immediately without requiring extension restart
+
 ## Development Environment Setup
 
 ### Prerequisites & System Requirements

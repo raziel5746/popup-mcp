@@ -147,7 +147,7 @@ describe('PopupWebview', () => {
       await popupWebview.renderPopup(request, () => {});
 
       expect(mockWebview.html).toContain('/custom/workspace/path');
-      expect(mockWebview.html).toContain('Workspace Path (Debug)');
+      expect(mockWebview.html).toContain('Workspace Path Comparison (Debug)');
     });
   });
 
