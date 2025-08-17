@@ -236,7 +236,7 @@ Before starting development, ensure your system meets these requirements:
 | **Extension CLI** | vsce | Latest | VS Code extension packaging | `npm install -g vsce` |
 | **Build Tool** | esbuild | 0.20.x | Fast bundling for extension | Installed via npm dependencies |
 | **Testing** | Jest | 29.x | Unit & integration testing | Installed via npm dependencies |
-| **E2E Testing** | Playwright | 1.41.x | End-to-end testing | Installed via npm dependencies |
+| **E2E Testing** | Jest + @vscode/test-electron | 29.x / Latest | End-to-end extension testing | Installed via npm dependencies |
 | **VS Code Testing** | @vscode/test-electron | Latest | Extension testing framework | Installed via npm dependencies |
 
 #### Operating System Support
@@ -455,7 +455,7 @@ popup-mcp/
 This repository setup integrates seamlessly with the extension skeleton creation process (Story 1.3):
 
 - **Source Structure**: The `src/` directory is pre-configured for extension components and MCP server logic
-- **Testing Framework**: Jest and Playwright are set up for comprehensive testing
+- **Testing Framework**: Jest is set up for comprehensive unit, integration, and E2E testing
 - **Build Pipeline**: esbuild configuration ready for TypeScript compilation
 - **VS Code Integration**: Package.json structure prepared for extension metadata
 

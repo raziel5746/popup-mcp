@@ -26,7 +26,7 @@ popup-mcp/
 │   └── extension.ts            # Main activation
 ├── tests/                      # Unit/integration/E2E
 │   ├── unit/                   # Jest tests
-│   └── e2e/                    # Playwright scripts
+│   └── e2e/                    # Jest E2E tests
 ├── assets/                     # Static files
 │   └── chime.wav               # Notification sound
 ├── docs/                       # Documentation

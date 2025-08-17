@@ -16,7 +16,7 @@
 | Authentication | N/A | N/A | No auth required | Per PRD, extension is local; no user auth needed. |
 | Frontend Testing | Jest + @vscode/test-electron | 29.x / Latest | Unit/integration for UI components | Standard for VS Code extensions; electron runner for realistic testing, chosen over Vitest for compatibility. |
 | Backend Testing | Jest | 29.x | Unit tests for MCP logic | Consistent tooling; sufficient for Node.js parts. |
-| E2E Testing | Playwright | 1.41.x | End-to-end extension flows | Cross-platform; integrates well with VS Code for simulating instances, preferred over Cypress for headless capabilities. |
+| E2E Testing | Jest + @vscode/test-electron | 29.x / Latest | End-to-end extension flows | Using Jest with VS Code test framework for extension E2E testing, more suitable for VS Code extensions than browser-based tools. |
 | Build Tool | esbuild | 0.20.x | Bundling extension | Fast and lightweight; chosen over webpack for speed in extension packaging. |
 | Bundler | vsce (VS Code Extension CLI) | Latest | Packaging for marketplace | Official tool; bundles TS to JS for deployment. |
 | IaC Tool | N/A | N/A | No infrastructure | Local extension; no cloud IaC needed. |

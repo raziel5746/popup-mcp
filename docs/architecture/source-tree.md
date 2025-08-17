@@ -29,7 +29,7 @@ popup-mcp/
 │   └── extension.ts            # Main activation tying FE/BE
 ├── tests/                      # Unit/integration/E2E
 │   ├── unit/                   # Jest tests (FE/BE units)
-│   └── e2e/                    # Playwright scripts (full flows)
+│   └── e2e/                    # Jest E2E tests (full flows)
 ├── assets/                     # Static files
 │   └── chime.wav               # Notification sound
 ├── docs/                       # Documentation

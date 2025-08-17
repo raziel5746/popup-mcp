@@ -2,7 +2,7 @@
 
 ## Testing Pyramid
 ```
-                  E2E Tests (Playwright)
+                  E2E Tests (Jest)
                  /                  \
         Integration Tests (Jest + VS Code APIs)
                /                      \
@@ -69,8 +69,8 @@ test('handles valid request', async () => {
 
 ### E2E Test
 ```typescript
-// fullWorkflow.test.ts (Playwright)
-import { test } from '@playwright/test';
+// fullWorkflow.test.ts (Jest E2E)
+import { describe, test, expect } from '@jest/globals';
 
 test('triggers and responds to popup', async ({ page }) => {
   // Simulate VS Code instance and extension
