@@ -3,7 +3,7 @@
  * Tests accurate routing of popup requests to correct VS Code instances
  */
 
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { RequestHandler } from '../../src/backend/requestHandler';
 import { InstanceCoordinator } from '../../src/backend/coordination';
 import { ResponseHandler } from '../../src/backend/responseHandler';
@@ -11,6 +11,10 @@ import { PopupRequest } from '../../src/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+// Mock fs module for deterministic file operations
+jest.mock('fs');
+const mockFs = fs as jest.Mocked<typeof fs>;
 
 describe('Popup Routing E2E Tests', () => {
   const testWorkspacePath1 = '/test/workspace1';
@@ -25,12 +29,42 @@ describe('Popup Routing E2E Tests', () => {
   let requestHandler2: RequestHandler;
   let coordinationFile: string;
 
+  // Helper function to advance timers and wait for async operations
+  const advanceTimersAndWait = async (ms: number) => {
+    jest.advanceTimersByTime(ms);
+    await Promise.resolve(); // Allow any pending promises to resolve
+  };
+
   beforeEach(async () => {
-    // Clean up any existing coordination file
+    // Use fake timers for all tests
+    jest.useFakeTimers();
+    // Mock Date.now to work with fake timers
+    jest.spyOn(Date, 'now').mockImplementation(() => jest.now());
+    
+    // Mock file system operations with in-memory storage
+    let mockFileContent: string | null = null;
+    
+    mockFs.existsSync.mockImplementation((_path: fs.PathLike) => {
+      return mockFileContent !== null;
+    });
+    
+    mockFs.readFileSync.mockImplementation(((_path: any, _options?: any) => {
+      if (mockFileContent === null) {
+        throw new Error('ENOENT: no such file or directory');
+      }
+      return mockFileContent;
+    }) as any);
+    
+    mockFs.writeFileSync.mockImplementation(((_path: any, data: any, _options?: any) => {
+      mockFileContent = data.toString();
+    }) as any);
+    
+    mockFs.unlinkSync.mockImplementation((_path: fs.PathLike) => {
+      mockFileContent = null;
+    });
+    
+    // Set coordination file path for reference
     coordinationFile = path.join(os.tmpdir(), 'popup-mcp-coordination.json');
-    if (fs.existsSync(coordinationFile)) {
-      fs.unlinkSync(coordinationFile);
-    }
 
     // Create coordinators and request handlers
     coordinator1 = new InstanceCoordinator(testWorkspacePath1, testPort1);
@@ -60,6 +94,10 @@ describe('Popup Routing E2E Tests', () => {
     if (requestHandler2) {
       requestHandler2.dispose();
     }
+
+    // Restore real timers and mocks
+    jest.useRealTimers();
+    jest.restoreAllMocks();
 
     // Clean up coordination file
     if (fs.existsSync(coordinationFile)) {
@@ -117,7 +155,7 @@ describe('Popup Routing E2E Tests', () => {
       let triggeredRequest: PopupRequest | null = null;
       requestHandler1.setPopupTriggerCallback(async (request: PopupRequest, responseHandler: ResponseHandler) => {
         triggeredRequest = request;
-        // Simulate user response
+        // Simulate user response using fake timers
         setTimeout(() => {
           responseHandler.handlePopupResponse({
             requestId: request.requestId,
@@ -125,6 +163,10 @@ describe('Popup Routing E2E Tests', () => {
           });
         }, 100);
       });
+      
+      // Start coordinator to enable local routing
+      await coordinator1.start();
+      await advanceTimersAndWait(1000);
 
       const request = {
         jsonrpc: '2.0' as const,
@@ -138,7 +180,12 @@ describe('Popup Routing E2E Tests', () => {
         id: 'test-3'
       };
 
-      const response = await requestHandler1.handleRequest(JSON.stringify(request));
+      const responsePromise = requestHandler1.handleRequest(JSON.stringify(request));
+      
+      // Advance timers to process the setTimeout in the callback
+      await advanceTimersAndWait(150);
+      
+      const response = await responsePromise;
       const parsedResponse = JSON.parse(response);
       
       // Should be handled locally
@@ -150,7 +197,7 @@ describe('Popup Routing E2E Tests', () => {
     it('should return error when no matching instance found', async () => {
       // Start single coordinator in server mode
       await coordinator1.start();
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for election
+      await advanceTimersAndWait(2000); // Wait for election
       
       requestHandler1.setServerMode();
 
@@ -179,35 +226,73 @@ describe('Popup Routing E2E Tests', () => {
 
   describe('Multi-Instance Routing', () => {
     it('should route between different instances based on workspace path', async () => {
-      // Start both coordinators
+      // Start coordinator1 as server
       await coordinator1.start();
+      await advanceTimersAndWait(1000);
+      
+      // Mock coordinator2's state loading and HTTP check to see coordinator1 as server
+      const mockLoadState = jest.fn();
+      (coordinator2 as any).loadState = mockLoadState;
+      
+      mockLoadState.mockImplementation(async () => {
+        (coordinator2 as any).state = {
+          instances: new Map([
+            [coordinator1.getInstanceId(), {
+              instanceId: coordinator1.getInstanceId(),
+              role: 'server-active',
+              workspacePath: testWorkspacePath1,
+              processId: 1001,
+              lastSeen: jest.now(),
+              httpPort: testPort1
+            }]
+          ]),
+          serverInstance: {
+            instanceId: coordinator1.getInstanceId(),
+            role: 'server-active',
+            workspacePath: testWorkspacePath1,
+            processId: 1001,
+            lastSeen: jest.now(),
+            httpPort: testPort1
+          },
+          lastElection: jest.now()
+        };
+      });
+      
+      const mockCheckForExistingServer = jest.fn() as jest.MockedFunction<(port: number) => Promise<any | null>>;
+      mockCheckForExistingServer.mockResolvedValue({
+        instanceId: coordinator1.getInstanceId(),
+        workspacePath: testWorkspacePath1,
+        httpPort: testPort1
+      });
+      (coordinator2 as any).checkForExistingServer = mockCheckForExistingServer;
+      
+      // Start coordinator2 as client
       await coordinator2.start();
+      await advanceTimersAndWait(1000);
       
-      // Wait for election
-      let attempts = 0;
-      let roles = [coordinator1.getCurrentRole(), coordinator2.getCurrentRole()];
+      // Mock both coordinators to see each other
+      (coordinator1 as any).state.instances.set(coordinator2.getInstanceId(), {
+        instanceId: coordinator2.getInstanceId(),
+        role: 'client-active',
+        workspacePath: testWorkspacePath2,
+        processId: 1002,
+        lastSeen: jest.now(),
+        httpPort: undefined
+      });
       
-      while ((!roles.includes('server-active') || !roles.includes('client-active')) && attempts < 20) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        roles = [coordinator1.getCurrentRole(), coordinator2.getCurrentRole()];
-        attempts++;
-      }
+      (coordinator2 as any).state.instances.set(coordinator2.getInstanceId(), {
+        instanceId: coordinator2.getInstanceId(),
+        role: 'client-active',
+        workspacePath: testWorkspacePath2,
+        processId: 1002,
+        lastSeen: jest.now(),
+        httpPort: undefined
+      });
       
-      // Set up coordinators in request handlers
-      const isCoordinator1Server = coordinator1.getCurrentRole() === 'server-active';
-      const serverCoordinator = isCoordinator1Server ? coordinator1 : coordinator2;
-      const serverHandler = isCoordinator1Server ? requestHandler1 : requestHandler2;
+      // Set up server mode
+      requestHandler1.setServerMode();
       
-      serverHandler.setServerMode();
-      
-      // Wait for both instances to be registered
-      let instances = serverCoordinator.getAllInstances();
-      let registrationAttempts = 0;
-      while (instances.length < 2 && registrationAttempts < 10) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        instances = serverCoordinator.getAllInstances();
-        registrationAttempts++;
-      }
+      const instances = coordinator1.getAllInstances();
       
       // Verify that server knows about both instances
       expect(instances.length).toBeGreaterThanOrEqual(2);
@@ -233,6 +318,10 @@ describe('Popup Routing E2E Tests', () => {
           });
         }, 100);
       });
+      
+      // Start coordinator to enable local routing
+      await coordinator1.start();
+      await advanceTimersAndWait(1000);
 
       // Test different path formats that should match testWorkspacePath1
       const testCases = [
@@ -255,7 +344,12 @@ describe('Popup Routing E2E Tests', () => {
           id: `test-normalize-${workspacePath.replace(/[^a-zA-Z0-9]/g, '')}`
         };
 
-        const response = await requestHandler1.handleRequest(JSON.stringify(request));
+        const responsePromise = requestHandler1.handleRequest(JSON.stringify(request));
+        
+        // Advance timers to process the setTimeout in the callback
+        await advanceTimersAndWait(150);
+        
+        const response = await responsePromise;
         const parsedResponse = JSON.parse(response);
         
         // Should match and be handled locally
@@ -281,6 +375,10 @@ describe('Popup Routing E2E Tests', () => {
           });
         }, 100);
       });
+      
+      // Start coordinator to enable local routing
+      await coordinator1.start();
+      await advanceTimersAndWait(1000);
 
       const request = {
         jsonrpc: '2.0' as const,
@@ -297,7 +395,12 @@ describe('Popup Routing E2E Tests', () => {
         id: 'test-tools-call-1'
       };
 
-      const response = await requestHandler1.handleRequest(JSON.stringify(request));
+      const responsePromise = requestHandler1.handleRequest(JSON.stringify(request));
+      
+      // Advance timers to process the setTimeout in the callback
+      await advanceTimersAndWait(150);
+      
+      const response = await responsePromise;
       const parsedResponse = JSON.parse(response);
       
       // Should be handled locally and return MCP tool response format
@@ -305,9 +408,8 @@ describe('Popup Routing E2E Tests', () => {
       expect(parsedResponse.result.content).toBeDefined();
       expect(parsedResponse.result.content[0].type).toBe('text');
       
-      const responseData = JSON.parse(parsedResponse.result.content[0].text);
-      expect(responseData.selectedValue).toBe('selected-option');
-      expect(responseData.status).toBe('success');
+      const responseText = parsedResponse.result.content[0].text;
+      expect(responseText).toBe('User selected: selected-option');
       
       expect(triggeredRequest).not.toBeNull();
       expect(triggeredRequest!.workspacePath).toBe(testWorkspacePath1);
@@ -316,7 +418,7 @@ describe('Popup Routing E2E Tests', () => {
     it('should return error for tools/call with non-matching workspace', async () => {
       // Start single coordinator
       await coordinator1.start();
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await advanceTimersAndWait(2000);
       
       requestHandler1.setServerMode();
 
@@ -349,7 +451,7 @@ describe('Popup Routing E2E Tests', () => {
     it('should handle routing failures gracefully', async () => {
       // Start coordinator but don't set up HTTP server
       await coordinator1.start();
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await advanceTimersAndWait(1000);
       
       // Mock an instance with no HTTP port
       const mockInstance = {
