@@ -333,7 +333,7 @@ export class RequestHandler {
                 description: 'Required workspace path to target specific VS Code instance. AI assistants should include their current workspace path here for proper routing in multi-instance environments.'
               }
             },
-            required: ['title', 'message']
+            required: ['title', 'message', 'workspacePath']
           },
           annotations: {
             readOnlyHint: true,

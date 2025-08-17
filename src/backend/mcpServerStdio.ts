@@ -136,7 +136,7 @@ function registerTools(): void {
         value: z.string().describe('The value returned when this option is selected'),
         label: z.string().describe('The display text shown to the user')
       })).optional().describe('Array of button options for user selection. Each option should have a value (returned when selected) and label (displayed to user).'),
-      workspacePath: z.string().optional().describe('Required workspace path to target specific VS Code instance. AI assistants should include their current workspace path here for proper routing in multi-instance environments.')
+      workspacePath: z.string().describe('Required workspace path to target specific VS Code instance. AI assistants should include their current workspace path here for proper routing in multi-instance environments.')
     },
     async ({ title, message, options, workspacePath }) => {
       try {
