@@ -51,9 +51,9 @@ export class InstanceCoordinator extends EventEmitter {
   private heartbeatInterval?: NodeJS.Timeout;
   private electionTimeout?: NodeJS.Timeout;
   private state: CoordinationState;
-  private readonly HEARTBEAT_INTERVAL = 2000; // 2 seconds
-  private readonly ELECTION_TIMEOUT = 5000; // 5 seconds  
-  private readonly INSTANCE_TIMEOUT = 8000; // 8 seconds
+  private readonly HEARTBEAT_INTERVAL = 10000; // 10 seconds (reduced frequency)
+  private readonly ELECTION_TIMEOUT = 15000; // 15 seconds (reduced frequency)  
+  private readonly INSTANCE_TIMEOUT = 30000; // 30 seconds
 
   constructor(workspacePath: string, desiredHttpPort?: number) {
     super();
@@ -164,6 +164,13 @@ export class InstanceCoordinator extends EventEmitter {
   }
 
   /**
+   * Gets the instance ID for this instance
+   */
+  getInstanceId(): string {
+    return this.instanceId;
+  }
+
+  /**
    * Forwards a request to the server instance (for clients)
    */
   async forwardToServer(request: any): Promise<any> {
@@ -196,28 +203,35 @@ export class InstanceCoordinator extends EventEmitter {
   }
 
   /**
-   * Performs initial election and port allocation
+   * Performs initial election using configured port discovery
    */
   private async performInitialElection(): Promise<void> {
     try {
-      // Clean up stale instances first
-      await this.cleanupStaleInstances();
+      const configuredPort = this.httpPort || 9001;
       
-      // Check if there's already an active server
-      const existingServer = this.state.serverInstance;
-      const serverIsAlive = existingServer && this.state.instances.has(existingServer.instanceId) && 
-        (Date.now() - this.state.instances.get(existingServer.instanceId)!.lastSeen) < this.INSTANCE_TIMEOUT;
+      // Try to connect to the configured port to see if a server already exists
+      const existingServer = await this.checkForExistingServer(configuredPort);
       
-      if (serverIsAlive && existingServer) {
+      if (existingServer) {
         // Become a client
         this.currentRole = 'client-active';
         this.httpPort = undefined; // Clients don't need HTTP ports
-        logger.info(`Existing server found: ${existingServer.instanceId} (port ${existingServer.httpPort}), becoming client`);
+        logger.info(`Existing server found on configured port ${configuredPort}, becoming client`);
+        
+        // Store server info for client reference
+        this.state.serverInstance = {
+          instanceId: existingServer.instanceId || 'unknown',
+          role: 'server-active',
+          workspacePath: existingServer.workspacePath || '',
+          processId: 0, // Unknown from health check
+          lastSeen: Date.now(),
+          httpPort: configuredPort
+        };
       } else {
-        // Become the server and allocate a port
+        // No server on configured port - become the server
         this.currentRole = 'server-active';
-        this.httpPort = await this.allocateAvailablePort(this.httpPort || 9001);
-        logger.info(`No active server found, becoming server on port ${this.httpPort}`);
+        this.httpPort = configuredPort;
+        logger.info(`No server found on configured port ${configuredPort}, becoming server`);
         
         // Update server instance in state
         this.state.serverInstance = {
@@ -228,14 +242,65 @@ export class InstanceCoordinator extends EventEmitter {
           lastSeen: Date.now(),
           httpPort: this.httpPort
         };
-        
-        await this.saveState();
       }
+      
+      // Still register this instance for tracking
+      await this.registerInstance();
+      
     } catch (error) {
       logger.error('Error during initial election:', error);
       this.currentRole = 'inactive';
       throw error;
     }
+  }
+
+  /**
+   * Checks if there's already a server running on the configured port
+   */
+  private async checkForExistingServer(port: number): Promise<any | null> {
+    try {
+      logger.info(`Checking for existing server on port ${port}...`);
+      
+      // Use GET request for health check instead of POST
+      const response = await this.makeHttpGetRequest(`http://localhost:${port}/health`);
+      
+      logger.info(`Found existing server on port ${port}:`, response);
+      return response;
+      
+    } catch (error) {
+      logger.info(`No server found on port ${port}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Makes an HTTP GET request for health checks
+   */
+  private async makeHttpGetRequest(url: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const req = http.request(url, { method: 'GET' }, (res: any) => {
+        let responseData = '';
+        
+        res.on('data', (chunk: string) => {
+          responseData += chunk;
+        });
+        
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(responseData);
+            resolve(response);
+          } catch (error) {
+            reject(new Error(`Invalid JSON response: ${responseData}`));
+          }
+        });
+      });
+      
+      req.on('error', (error: Error) => {
+        reject(error);
+      });
+      
+      req.end();
+    });
   }
 
   /**
@@ -381,45 +446,30 @@ export class InstanceCoordinator extends EventEmitter {
    * Starts the heartbeat mechanism
    */
   private startHeartbeat(): void {
-    this.heartbeatInterval = setInterval(async () => {
-      try {
-        // Reload state to get latest coordination info
-        await this.loadState();
-        
-        // Update this instance's last seen timestamp
-        const instance = this.state.instances.get(this.instanceId);
-        if (instance) {
-          instance.lastSeen = Date.now();
-          instance.role = this.currentRole;
-          await this.saveState();
-        }
-        
-        // Clean up stale instances
-        await this.cleanupStaleInstances();
-        
-        // Check if server is still alive (for clients)
-        if (this.currentRole === 'client-active') {
-          if (!this.state.serverInstance) {
-            logger.info('No server instance found, triggering election');
-            await this.triggerElection();
-          } else {
-            const serverInstance = this.state.instances.get(this.state.serverInstance.instanceId);
-            if (!serverInstance || Date.now() - serverInstance.lastSeen > this.INSTANCE_TIMEOUT) {
-              logger.info('Server instance appears to be down, triggering immediate re-election');
-              await this.triggerElection();
-            }
+    // For port-based coordination, minimize file-based monitoring
+    // Clients monitor server health via WebSocket connection status
+    
+    if (this.currentRole === 'server-active') {
+      // Only servers need heartbeat to maintain their registration
+      this.heartbeatInterval = setInterval(async () => {
+        try {
+          // Update this server instance's last seen timestamp
+          const instance = this.state.instances.get(this.instanceId);
+          if (instance) {
+            instance.lastSeen = Date.now();
+            instance.role = this.currentRole;
+            await this.saveState();
           }
+          
+          // Clean up stale instances
+          await this.cleanupStaleInstances();
+          
+        } catch (error) {
+          logger.error('Server heartbeat error:', error);
         }
-        
-        // Also check if no server exists and we should become one (for inactive instances)
-        if (this.currentRole === 'inactive' && !this.state.serverInstance) {
-          logger.info('No server instance found and we are inactive, triggering election');
-          await this.triggerElection();
-        }
-      } catch (error) {
-        logger.error('Heartbeat error:', error);
-      }
-    }, this.HEARTBEAT_INTERVAL);
+      }, this.HEARTBEAT_INTERVAL);
+    }
+    // Clients don't need heartbeat - they monitor server via WebSocket
   }
 
   /**

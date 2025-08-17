@@ -132,7 +132,10 @@ function registerTools(): void {
     {
       title: z.string().describe('Title of the popup'),
       message: z.string().describe('Message to display to the user'),
-      options: z.array(z.string()).optional().describe('Array of button options for user selection'),
+      options: z.array(z.object({
+        value: z.string().describe('The value returned when this option is selected'),
+        label: z.string().describe('The display text shown to the user')
+      })).optional().describe('Array of button options for user selection. Each option should have a value (returned when selected) and label (displayed to user).'),
       workspacePath: z.string().optional().describe('Required workspace path to target specific VS Code instance. AI assistants should include their current workspace path here for proper routing in multi-instance environments.')
     },
     async ({ title, message, options, workspacePath }) => {
@@ -140,8 +143,8 @@ function registerTools(): void {
         console.error(`[MCP] 🎯 Triggering popup: ${title}`);
         console.error(`[MCP] 📍 Workspace path provided: ${workspacePath || 'Not provided'}`);
         
-        // Convert options to the format expected by our popup system
-        const formattedOptions = options ? options.map(opt => ({ label: opt, value: opt })) : [];
+        // Options are already in the correct {value, label} format from the schema
+        const formattedOptions = options || [];
         
         const response = await requestPopup({
           title,

@@ -12,6 +12,7 @@ import { ChimePlayer } from './utils/chimePlayer';
 import { SettingsManager } from './components/SettingsManager';
 import { ResponseHandler } from './backend/responseHandler';
 import { InstanceCoordinator } from './backend/coordination';
+import { WebSocketClient } from './components/WebSocketClient';
 
 let mcpServer: McpServer | undefined;
 let popupWebview: PopupWebview | undefined;
@@ -21,6 +22,7 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let chimeStatusBarItem: vscode.StatusBarItem | undefined;
 let lastStatusBarText: string | undefined;
 let coordinator: InstanceCoordinator | undefined;
+let wsClient: WebSocketClient | undefined;
 const statusState: StatusState = {
   role: 'inactive',
   isActive: false
@@ -63,9 +65,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Set up server event handlers
       setupServerEventHandlers();
       
+      // Set instance information on MCP server for coordination
+      mcpServer.setInstanceId(coordinator.getInstanceId());
+      mcpServer.setWorkspacePath(getCurrentWorkspacePath());
+      
       // Start the server
       await mcpServer.start();
+      
+      // Set MCP server reference in request handler for WebSocket routing
+      const requestHandler = mcpServer.getRequestHandler();
+      requestHandler.setMcpServer(mcpServer);
+      
       logger.info(`Server instance started on port ${allocatedPort}`);
+    } else if (statusState.role === 'client-active' && coordinator) {
+      // Initialize WebSocket client for client instances
+      const serverInstance = coordinator.getServerInstance();
+      if (serverInstance?.httpPort) {
+        await initializeWebSocketClient(serverInstance.httpPort);
+      } else {
+        logger.warn('No server instance available for WebSocket client connection');
+      }
     } else {
       logger.info(`Instance role is ${statusState.role} - MCP server not started on this instance`);
     }
@@ -102,6 +121,12 @@ export async function deactivate(): Promise<void> {
     logger.info('Extension deactivating...');
     
     logger.info('Popup MCP Extension shutting down...');
+    
+    // Stop WebSocket client
+    if (wsClient) {
+      wsClient.disconnect();
+      wsClient = undefined;
+    }
     
     // Stop instance coordination
     if (coordinator) {
@@ -569,6 +594,12 @@ function registerConfigurationHandler(): void {
       logger.info('Configuration changed, restarting MCP server...');
       
       try {
+        // Stop WebSocket client if it exists
+        if (wsClient) {
+          wsClient.disconnect();
+          wsClient = undefined;
+        }
+        
         // Stop existing server if it exists
         if (mcpServer) {
           await mcpServer.stop();
@@ -596,8 +627,22 @@ function registerConfigurationHandler(): void {
           logger.info('HTTP server always enabled for WebSocket bridge support');
           mcpServer = new McpServer(transportConfig);
           
+          // Set instance information on MCP server for coordination
+          mcpServer.setInstanceId((coordinator as InstanceCoordinator).getInstanceId());
+          mcpServer.setWorkspacePath(getCurrentWorkspacePath());
+          
           setupServerEventHandlers();
           await mcpServer.start();
+          
+          // Set MCP server reference in request handler for WebSocket routing
+          const requestHandler = mcpServer.getRequestHandler();
+          requestHandler.setMcpServer(mcpServer);
+        } else if (statusState.role === 'client-active' && coordinator) {
+          // Initialize WebSocket client for client instances
+          const serverInstance = (coordinator as InstanceCoordinator).getServerInstance();
+          if (serverInstance?.httpPort) {
+            await initializeWebSocketClient(serverInstance.httpPort);
+          }
         }
         
         // Re-setup popup integration
@@ -858,11 +903,27 @@ async function initializeCoordination(desiredHttpPort: number): Promise<void> {
     coordinator = new InstanceCoordinator(workspacePath, desiredHttpPort);
     
     // Set up role change handler
-    coordinator.on('roleChanged', (newRole: InstanceRole) => {
+    coordinator.on('roleChanged', async (newRole: InstanceRole) => {
       logger.info(`Instance role changed: ${statusState.role} -> ${newRole}`);
       
+      const previousRole = statusState.role;
       statusState.role = newRole;
       statusState.isActive = newRole !== 'inactive';
+      
+      // Handle WebSocket client connections based on role changes
+      if (newRole === 'client-active' && previousRole !== 'client-active' && coordinator) {
+        // Became a client - initialize WebSocket client
+        const serverInstance = coordinator.getServerInstance();
+        if (serverInstance?.httpPort) {
+          await initializeWebSocketClient(serverInstance.httpPort);
+        }
+      } else if (previousRole === 'client-active' && newRole !== 'client-active') {
+        // No longer a client - disconnect WebSocket client
+        if (wsClient) {
+          wsClient.disconnect();
+          wsClient = undefined;
+        }
+      }
       
       // Update server info if we're a client
       if (newRole === 'client-active' && coordinator) {
@@ -937,5 +998,82 @@ function updateRequestHandlerCoordination(): void {
     logger.info('Setting server mode for direct request handling');
     requestHandler.setServerMode();
     requestHandler.setCoordinator(coordinator);
+    requestHandler.setMcpServer(mcpServer);
+  }
+}
+
+/**
+ * Initializes WebSocket client for client instances
+ */
+async function initializeWebSocketClient(serverPort: number): Promise<void> {
+  try {
+    if (!popupWebview || !chimePlayer) {
+      logger.error('Cannot initialize WebSocket client - popup components not ready');
+      return;
+    }
+
+    logger.info(`Initializing WebSocket client to connect to server on port ${serverPort}`);
+    
+    wsClient = new WebSocketClient(getCurrentWorkspacePath());
+    
+    // Set up popup request callback
+    wsClient.setCallbacks({
+      onPopupRequest: async (request: PopupRequest) => {
+        logger.info(`Handling popup request via WebSocket: ${request.requestId}`);
+        
+        return new Promise((resolve, reject) => {
+          // Show popup and handle response
+          popupWebview!.renderPopup(request, (response) => {
+            logger.info(`WebSocket popup response: ${response.selectedValue}`);
+            resolve({ selectedValue: response.selectedValue });
+          }, async () => {
+            // Play chime when popup is ready and visible
+            try {
+              await chimePlayer!.playChime();
+            } catch (error) {
+              logger.error('Error playing chime for WebSocket popup:', error);
+            }
+          }, getCurrentWorkspacePath()).catch(error => {
+            logger.error('Error showing WebSocket popup:', error);
+            reject(error);
+          });
+        });
+      },
+      onServerDisconnected: () => {
+        logger.warn('Server disconnected - WebSocket connection lost');
+        // Update status to show disconnection but don't trigger elections
+        statusState.role = 'inactive';
+        statusState.isActive = false;
+        statusState.serverInfo = undefined;
+        updateStatusBar();
+      },
+      onServerReconnected: () => {
+        logger.info('Server reconnected - WebSocket connection restored');
+        // Update status to show reconnection
+        statusState.role = 'client-active';
+        statusState.isActive = true;
+        if (coordinator) {
+          const serverInstance = coordinator.getServerInstance();
+          if (serverInstance) {
+            statusState.serverInfo = {
+              instanceId: serverInstance.instanceId,
+              httpPort: serverInstance.httpPort || 0
+            };
+          }
+        }
+        updateStatusBar();
+      }
+    });
+    
+    // Connect to server
+    await wsClient.connect(serverPort);
+    
+    logger.info('WebSocket client initialized and connected');
+  } catch (error) {
+    logger.error('Failed to initialize WebSocket client:', error);
+    if (wsClient) {
+      wsClient.disconnect();
+      wsClient = undefined;
+    }
   }
 }

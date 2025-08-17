@@ -19,6 +19,7 @@ export class RequestHandler {
   private extensionWorkspacePath = '';
   private coordinator?: InstanceCoordinator;
   private isClientMode = false;
+  private mcpServer?: { routePopupToClient: (workspacePath: string, popupRequest: any) => Promise<any> }; // Reference to MCP server for WebSocket routing
 
   constructor() {
     this.responseHandler = new ResponseHandler();
@@ -76,6 +77,14 @@ export class RequestHandler {
   setCoordinator(coordinator: InstanceCoordinator): void {
     this.coordinator = coordinator;
     logger.info('Request handler coordinator set for instance routing');
+  }
+
+  /**
+   * Sets the MCP server reference for WebSocket routing
+   */
+  setMcpServer(mcpServer: { routePopupToClient: (workspacePath: string, popupRequest: any) => Promise<any> }): void {
+    this.mcpServer = mcpServer;
+    logger.info('Request handler MCP server reference set for WebSocket routing');
   }
 
   /**
@@ -304,9 +313,20 @@ export class RequestHandler {
               options: {
                 type: 'array',
                 items: {
-                  type: 'string'
+                  type: 'object',
+                  properties: {
+                    value: {
+                      type: 'string',
+                      description: 'The value returned when this option is selected'
+                    },
+                    label: {
+                      type: 'string',
+                      description: 'The display text shown to the user'
+                    }
+                  },
+                  required: ['value', 'label']
                 },
-                description: 'Array of button options for user selection'
+                description: 'Array of button options for user selection. Each option should have a value (returned when selected) and label (displayed to user).'
               },
               workspacePath: {
                 type: 'string',
@@ -391,12 +411,8 @@ export class RequestHandler {
       // Convert options from array of strings to array of objects if needed
       let options: Array<{ label: string; value: string }> = [];
       if (args.options && Array.isArray(args.options)) {
-        options = args.options.map((opt: string | { label: string; value: string }) => {
-          if (typeof opt === 'string') {
-            return { label: opt, value: opt };
-          }
-          return opt;
-        });
+        // Options are already in the correct format from the schema
+        options = args.options;
       }
 
       // Create popup request object
@@ -458,10 +474,7 @@ export class RequestHandler {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({
-              selectedValue: parsedResponse.result?.selectedValue || '',
-              status: 'success'
-            })
+            text: `User selected: ${parsedResponse.result?.selectedValue || ''}`
           }
         ]
       };
@@ -573,7 +586,35 @@ export class RequestHandler {
       }
     }
 
-    // No matching instance found - return error
+    // No matching instance found in coordination system - try WebSocket clients directly
+    if (this.mcpServer) {
+      try {
+        logger.info(`No coordination instance found, attempting direct WebSocket routing to: ${requestedWorkspacePath}`);
+        const wsResponse = await this.mcpServer.routePopupToClient(requestedWorkspacePath, request);
+        
+        // Return response in the same MCP tool format as local case
+        const mcpToolResponse = {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: `User selected: ${wsResponse.selectedValue}`
+              }
+            ]
+          }
+        };
+        
+        logger.info(`WebSocket routing successful, returning: ${wsResponse.selectedValue}`);
+        return JSON.stringify(mcpToolResponse);
+        
+      } catch (wsError) {
+        logger.warn(`Direct WebSocket routing also failed: ${wsError instanceof Error ? wsError.message : String(wsError)}`);
+      }
+    }
+    
+    // No matching instance found anywhere - return error
     logger.warn(`No instance found for workspace path: ${requestedWorkspacePath}`);
     return this.createErrorResponse(
       request.id,
@@ -644,7 +685,37 @@ export class RequestHandler {
    */
   private async routeToInstance(request: JSONRPCRequest, targetInstance: InstanceInfo): Promise<string> {
     try {
-      // If target instance has an HTTP port, forward via HTTP
+      // For popup requests, try WebSocket routing first if available
+      if ((request.method === 'triggerPopup' || 
+           (request.method === 'tools/call' && request.params?.name === 'triggerPopup')) &&
+          this.mcpServer) {
+        
+        try {
+          logger.info(`Attempting WebSocket routing to instance ${targetInstance.instanceId} (workspace: ${targetInstance.workspacePath})`);
+          
+          // Create popup request object
+          const popupRequest = this.createPopupRequestFromJsonRpc(request);
+          
+          // Try WebSocket routing
+          const response = await this.mcpServer.routePopupToClient(targetInstance.workspacePath, popupRequest);
+          
+          // Format the response in MCP tool format
+          return this.createSuccessResponse(request.id, {
+            content: [
+              {
+                type: 'text',
+                text: `User selected: ${response.selectedValue || response.response?.selectedValue || ''}`
+              }
+            ]
+          });
+          
+        } catch (wsError) {
+          logger.warn(`WebSocket routing failed for ${targetInstance.instanceId}: ${wsError instanceof Error ? wsError.message : String(wsError)}`);
+          // Fall through to HTTP routing
+        }
+      }
+
+      // Fall back to HTTP routing
       if (targetInstance.httpPort) {
         logger.info(`Forwarding request via HTTP to instance ${targetInstance.instanceId}:${targetInstance.httpPort}`);
         const response = await this.makeHttpRequest(
@@ -660,7 +731,7 @@ export class RequestHandler {
           -32000,
           'Target instance not accessible',
           { 
-            error: 'Target VS Code instance does not have HTTP transport enabled',
+            error: 'Target VS Code instance does not have HTTP transport enabled and WebSocket routing failed',
             targetInstance: targetInstance.instanceId
           }
         );
@@ -677,6 +748,44 @@ export class RequestHandler {
         }
       );
     }
+  }
+
+  /**
+   * Creates a popup request object from a JSON-RPC request
+   */
+  private createPopupRequestFromJsonRpc(request: JSONRPCRequest): any {
+    let title: string;
+    let message: string;
+    let options: Array<{ label: string; value: string }> = [];
+    let workspacePath: string;
+
+    if (request.method === 'triggerPopup') {
+      title = request.params.title;
+      message = request.params.message;
+      options = request.params.options || [];
+      workspacePath = request.params.workspacePath || '';
+    } else if (request.method === 'tools/call' && request.params?.name === 'triggerPopup') {
+      const args = request.params.arguments;
+      title = args.title;
+      message = args.message;
+      
+      // Convert options from array of strings to array of objects if needed
+      if (args.options && Array.isArray(args.options)) {
+        // Options are already in the correct format from the schema
+        options = args.options;
+      }
+      workspacePath = args.workspacePath || '';
+    } else {
+      throw new Error('Invalid request method for popup creation');
+    }
+
+    return {
+      requestId: this.generateRequestId(),
+      workspacePath,
+      title,
+      message,
+      options
+    };
   }
 
   /**

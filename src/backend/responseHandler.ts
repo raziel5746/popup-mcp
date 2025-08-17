@@ -116,8 +116,7 @@ export class ResponseHandler extends EventEmitter {
 
       // Create response data
       const responseData = JSON.stringify({
-        selectedValue: response.selectedValue,
-        timestamp: new Date().toISOString()
+        selectedValue: response.selectedValue
       });
 
       // Route response back via the original transport

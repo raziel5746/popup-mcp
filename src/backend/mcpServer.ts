@@ -5,7 +5,7 @@
 import * as net from 'net';
 import * as http from 'http';
 import { EventEmitter } from 'events';
-import WebSocket from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { TransportConfig, ServerHealth, TransportError } from '../types';
 import { RequestHandler } from './requestHandler';
 import { logger } from '../utils/logger';
@@ -16,12 +16,17 @@ import { logger } from '../utils/logger';
 export class McpServer extends EventEmitter {
   private httpServer?: http.Server;
   private wsServer?: WebSocket.Server;
+  private popupWsServer?: WebSocketServer;
+  private clientConnections = new Map<string, WebSocket>(); // workspace -> websocket
   private stdioActive = false;
   private requestHandler: RequestHandler;
   private startTime: number;
   private config: TransportConfig;
   private activeConnections = 0;
   private lastError?: string;
+  private heartbeatInterval?: NodeJS.Timeout;
+  private instanceId?: string;
+  private workspacePath?: string;
 
   constructor(config: TransportConfig) {
     super();
@@ -68,6 +73,25 @@ export class McpServer extends EventEmitter {
   async stop(): Promise<void> {
     try {
       logger.info('MCP Server stopping...');
+
+      // Stop heartbeat interval
+      if (this.heartbeatInterval) {
+        clearInterval(this.heartbeatInterval);
+        this.heartbeatInterval = undefined;
+      }
+
+      // Stop popup WebSocket server
+      if (this.popupWsServer) {
+        try {
+          this.popupWsServer.close();
+        } catch (error) {
+          logger.error('Error closing popup WebSocket server:', error);
+        }
+        this.popupWsServer = undefined;
+      }
+
+      // Clear client connections
+      this.clientConnections.clear();
 
       // Stop WebSocket server
       if (this.wsServer) {
@@ -145,14 +169,97 @@ export class McpServer extends EventEmitter {
   }
 
   /**
+   * Sets the instance ID for coordination
+   */
+  setInstanceId(instanceId: string): void {
+    this.instanceId = instanceId;
+  }
+
+  /**
+   * Gets the instance ID
+   */
+  getInstanceId(): string {
+    return this.instanceId || 'unknown';
+  }
+
+  /**
+   * Sets the workspace path for coordination
+   */
+  setWorkspacePath(workspacePath: string): void {
+    this.workspacePath = workspacePath;
+  }
+
+  /**
+   * Gets the workspace path
+   */
+  getWorkspacePath(): string {
+    return this.workspacePath || '';
+  }
+
+  /**
+   * Normalizes workspace path for consistent comparison
+   */
+  private normalizeWorkspacePath(path: string): string {
+    return path.toLowerCase().replace(/\\/g, '/');
+  }
+
+  /**
+   * Routes a popup request to a client via WebSocket
+   */
+  async routePopupToClient(workspacePath: string, popupRequest: any): Promise<any> {
+    // Normalize the workspace path for consistent lookup
+    const normalizedPath = this.normalizeWorkspacePath(workspacePath);
+    const ws = this.clientConnections.get(normalizedPath);
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Client not connected');
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Popup request timeout'));
+      }, 30000);
+
+      const responseHandler = (data: Buffer) => {
+        try {
+          const response = JSON.parse(data.toString());
+          // Extract request ID from popup request (could be .id or .requestId)
+          const expectedId = popupRequest.requestId || popupRequest.id;
+          logger.info(`Checking WebSocket response: received ID "${response.requestId}" (${typeof response.requestId}), expected ID "${expectedId}" (${typeof expectedId})`);
+          // Use loose equality to handle string vs number comparison
+          if (response.requestId == expectedId) {
+            logger.info(`WebSocket response matched! Selected value: ${response.selectedValue}`);
+            clearTimeout(timeout);
+            ws.off('message', responseHandler);
+            resolve(response);
+          } else {
+            logger.warn(`WebSocket response ID mismatch: received "${response.requestId}", expected "${expectedId}"`);
+          }
+        } catch (error) {
+          logger.error('Error parsing WebSocket response:', error);
+        }
+      };
+
+      ws.on('message', responseHandler);
+      // Send popup request to client
+      const requestToSend = {
+        type: 'popup_request',
+        ...popupRequest
+      };
+      
+      logger.info('Sending popup request via WebSocket:', JSON.stringify(requestToSend, null, 2));
+      ws.send(JSON.stringify(requestToSend));
+    });
+  }
+
+  /**
    * Sets up WebSocket server for stdio MCP server communication
    */
   private setupWebSocketServer(): void {
     if (!this.httpServer) {return;}
 
+    // Use noServer: true for proper HTTP server sharing
     this.wsServer = new WebSocket.Server({ 
-      server: this.httpServer,
-      path: '/ws'
+      noServer: true
     });
 
     this.wsServer.on('connection', (ws) => {
@@ -182,6 +289,108 @@ export class McpServer extends EventEmitter {
     });
 
     logger.info('WebSocket server setup complete on /ws endpoint');
+  }
+
+  /**
+   * Sets up popup WebSocket server for client instance communication
+   */
+  private setupPopupWebSocketServer(): void {
+    if (!this.httpServer) {return;}
+
+    // Use noServer: true for proper HTTP server sharing
+    this.popupWsServer = new WebSocketServer({ 
+      noServer: true
+    });
+
+    // Handle the 'upgrade' event to route WebSocket requests to both /ws and /popup-ws
+    this.httpServer.on('upgrade', (request, socket, head) => {
+      const { pathname } = new URL(request.url || '', 'ws://localhost');
+      
+      logger.info(`WebSocket upgrade request to: ${pathname}`);
+      
+      if (pathname === '/ws') {
+        logger.info('Handling WebSocket upgrade for /ws (stdio MCP)');
+        this.wsServer!.handleUpgrade(request, socket, head, (ws) => {
+          this.wsServer!.emit('connection', ws, request);
+        });
+      } else if (pathname === '/popup-ws') {
+        logger.info('Handling WebSocket upgrade for /popup-ws (popup routing)');
+        this.popupWsServer!.handleUpgrade(request, socket, head, (ws) => {
+          this.popupWsServer!.emit('connection', ws, request);
+        });
+      } else {
+        logger.warn(`Unknown WebSocket path: ${pathname}, destroying socket`);
+        socket.destroy();
+      }
+    });
+
+    this.popupWsServer.on('connection', (ws, request) => {
+      logger.info('Popup WebSocket connection established from:', request.socket.remoteAddress);
+
+      // Add error handler immediately
+      ws.on('error', (error) => {
+        logger.error('Popup WebSocket error:', error);
+      });
+
+      // Handle client messages
+      ws.on('message', (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          
+          if (message.type === 'register') {
+            // Register client connection with normalized path for consistent lookup
+            const normalizedPath = this.normalizeWorkspacePath(message.workspacePath);
+            this.clientConnections.set(normalizedPath, ws);
+            logger.info(`Client registered: ${message.workspacePath} (normalized: ${normalizedPath})`);
+          } else if (message.type === 'popup_response') {
+            // Handle popup response from client - this is handled by the promise in routePopupToClient
+            logger.info(`Received popup response from client: ${message.selectedValue} (request: ${message.requestId})`);
+          }
+        } catch (error) {
+          logger.error('Error handling popup WebSocket message:', error);
+        }
+      });
+      
+      // Clean up on disconnect
+      ws.on('close', () => {
+        this.removeClientConnection(ws);
+        logger.info('Popup WebSocket connection closed');
+      });
+      
+      // Setup heartbeat
+      (ws as any).isAlive = true;
+      ws.on('pong', () => { 
+        (ws as any).isAlive = true; 
+      });
+    });
+
+    // Start heartbeat interval - ping clients every 30 seconds
+    this.heartbeatInterval = setInterval(() => {
+      if (this.popupWsServer) {
+        this.popupWsServer.clients.forEach(ws => {
+          if (!(ws as any).isAlive) {
+            return ws.terminate();
+          }
+          (ws as any).isAlive = false;
+          ws.ping();
+        });
+      }
+    }, 30000);
+
+    logger.info('Popup WebSocket server setup complete on /popup-ws endpoint');
+  }
+
+  /**
+   * Removes a client connection from the connections map
+   */
+  private removeClientConnection(ws: WebSocket): void {
+    for (const [workspacePath, connection] of this.clientConnections.entries()) {
+      if (connection === ws) {
+        this.clientConnections.delete(workspacePath);
+        logger.info(`Client connection removed: ${workspacePath}`);
+        break;
+      }
+    }
   }
 
   /**
@@ -272,6 +481,9 @@ export class McpServer extends EventEmitter {
           
           // Setup WebSocket server for stdio MCP server communication
           this.setupWebSocketServer();
+          
+          // Setup popup WebSocket server for client communication
+          this.setupPopupWebSocketServer();
           
           resolve();
         });
@@ -401,8 +613,17 @@ export class McpServer extends EventEmitter {
   private async handleHealthHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     try {
       const health = this.getHealth();
+      
+      // Add instance information for coordination
+      const healthWithInstance = {
+        ...health,
+        instanceId: this.getInstanceId(),
+        workspacePath: this.getWorkspacePath(),
+        role: 'server-active'
+      };
+      
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(health));
+      res.end(JSON.stringify(healthWithInstance));
     } catch (error) {
       logger.error('Health check error:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });

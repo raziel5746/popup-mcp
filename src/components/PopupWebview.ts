@@ -129,12 +129,12 @@ export class PopupWebview {
    * @returns HTML string
    */
   private getHtmlContent(request: PopupRequest, webview: vscode.Webview, extensionWorkspacePath?: string): string {
-    // Generate buttons HTML
-    const buttonsHtml = request.options.map(option => 
-      `<button class="popup-button" data-value="${this.escapeHtml(option.value)}">
+    // Generate buttons HTML (options are always {value, label} objects)
+    const buttonsHtml = request.options.map(option => {
+      return `<button class="popup-button" data-value="${this.escapeHtml(option.value)}">
         ${this.escapeHtml(option.label)}
-      </button>`
-    ).join('\n        ');
+      </button>`;
+    }).join('\n        ');
 
     // Get workspace paths for debugging and comparison (AC: 6)
     const aiWorkspacePath = request.workspacePath || 'Not provided by AI';
@@ -488,6 +488,9 @@ export class PopupWebview {
    * Escapes HTML to prevent XSS attacks
    */
   private escapeHtml(unsafe: string): string {
+    if (!unsafe || typeof unsafe !== 'string') {
+      return '';
+    }
     return unsafe
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
