@@ -46,6 +46,8 @@ export interface ExtensionConfig {
   enableHttp: boolean;
   /** Logging level */
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  /** Theme preference for future theme selection (not implemented in MVP) */
+  themePreference?: 'auto' | 'light' | 'dark' | 'high-contrast';
 }
 
 /**

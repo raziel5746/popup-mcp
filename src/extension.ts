@@ -226,14 +226,7 @@ function setupPopupIntegration(): void {
               `Failed to send popup response: ${error instanceof Error ? error.message : String(error)}`
             );
           }
-        }, async () => {
-          // Play chime when popup is ready and visible
-          try {
-            await chimePlayer!.playChime();
-          } catch (error) {
-            logger.error('Error playing chime:', error);
-          }
-        }, getCurrentWorkspacePath());
+        }, undefined, getCurrentWorkspacePath());
         
       } catch (error) {
         logger.error('Error triggering popup:', error);
@@ -411,16 +404,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
             logger.show();
           }
         });
-      }, async () => {
-        // Play chime when popup is ready and visible
-        try {
-          if (chimePlayer) {
-            await chimePlayer.playChime();
-          }
-        } catch (error) {
-          logger.error('Error playing test popup chime:', error);
-        }
-      }, getCurrentWorkspacePath());
+      }, undefined, getCurrentWorkspacePath());
       
     } catch (error) {
       const errorMessage = `Failed to show test popup: ${error instanceof Error ? error.message : String(error)}`;
@@ -1026,14 +1010,7 @@ async function initializeWebSocketClient(serverPort: number): Promise<void> {
           popupWebview!.renderPopup(request, (response) => {
             logger.info(`WebSocket popup response: ${response.selectedValue}`);
             resolve({ selectedValue: response.selectedValue });
-          }, async () => {
-            // Play chime when popup is ready and visible
-            try {
-              await chimePlayer!.playChime();
-            } catch (error) {
-              logger.error('Error playing chime for WebSocket popup:', error);
-            }
-          }, getCurrentWorkspacePath()).catch(error => {
+          }, undefined, getCurrentWorkspacePath()).catch(error => {
             logger.error('Error showing WebSocket popup:', error);
             reject(error);
           });

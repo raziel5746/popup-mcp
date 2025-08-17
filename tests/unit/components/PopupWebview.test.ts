@@ -330,22 +330,29 @@ describe('PopupWebview', () => {
       expect(html).toContain('<!DOCTYPE html>');
       expect(html).toContain('<html lang="en">');
       expect(html).toContain('<head>');
-      expect(html).toContain('<body>');
+      expect(html).toContain('<body class="theme-dark">');
       
       // Check required elements
       expect(html).toContain('popup-title');
       expect(html).toContain('popup-message');
-      expect(html).toContain('popup-input');
-      expect(html).toContain('popup-buttons');
+      expect(html).toContain('popup-textarea'); // Changed from popup-input to popup-textarea
+      expect(html).toContain('popup-actions'); // Changed from popup-buttons to popup-actions
       expect(html).toContain('debug-info');
       
       // Check buttons
       expect(html).toContain('data-value="opt1"');
       expect(html).toContain('data-value="opt2"');
       
+      // Check new interactive-mcp styling
+      expect(html).toContain('popup-container');
+      expect(html).toContain('popup-header');
+      expect(html).toContain('popup-content');
+      expect(html).toContain('popup-custom-text');
+      
       // Check CSS styles
       expect(html).toContain('var(--vscode-');
-      expect(html).toContain('fadeIn');
+      expect(html).toContain('slideIn'); // Changed from fadeIn to slideIn
+      expect(html).toContain('glow'); // Check for pulsating glow animation
       
       // Check JavaScript
       expect(html).toContain('acquireVsCodeApi()');
@@ -374,8 +381,8 @@ describe('PopupWebview', () => {
       await popupWebview.renderPopup(request, () => {});
 
       const html = mockWebview.html;
-      expect(html).toContain('popup-buttons');
-      expect(html).toContain('popup-input'); // Text input should still be available
+      expect(html).toContain('popup-actions'); // Changed from popup-buttons to popup-actions
+      expect(html).toContain('popup-textarea'); // Changed from popup-input to popup-textarea (custom text area)
     });
   });
 });

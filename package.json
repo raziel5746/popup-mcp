@@ -118,8 +118,9 @@
     "mcp:stdio": "node out/backend/mcpServerStdio.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@types/jest": "^29.0.0",
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.11",
     "@types/vscode": "^1.70.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
@@ -134,6 +135,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.3",
     "@types/ws": "^8.18.1",
+    "micromark": "^4.0.2",
     "ws": "^8.18.3",
     "zod": "^3.25.76"
   },

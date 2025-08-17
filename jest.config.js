@@ -18,7 +18,8 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1'
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^micromark$': '<rootDir>/tests/__mocks__/micromark.ts'
   },
   testTimeout: 10000,
   verbose: true

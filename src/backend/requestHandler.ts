@@ -374,8 +374,13 @@ export class RequestHandler {
         return this.createErrorResponse(
           request.id,
           -32602,
-          'Invalid parameters: title and message are required'
+          'Invalid parameters: title, message, and workspacePath are required'
         );
+      }
+      
+      // workspacePath is required but we can fallback if missing
+      if (!args.workspacePath) {
+        logger.warn('workspacePath missing from AI assistant request, using extension fallback');
       }
 
       const requestedWorkspacePath = args.workspacePath;
@@ -411,8 +416,15 @@ export class RequestHandler {
       // Convert options from array of strings to array of objects if needed
       let options: Array<{ label: string; value: string }> = [];
       if (args.options && Array.isArray(args.options)) {
-        // Options are already in the correct format from the schema
-        options = args.options;
+        options = args.options.map((option: any) => {
+          if (typeof option === 'string') {
+            // Convert string to object format
+            return { label: option, value: option };
+          } else {
+            // Already in object format
+            return option;
+          }
+        });
       }
 
       // Create popup request object
@@ -771,8 +783,15 @@ export class RequestHandler {
       
       // Convert options from array of strings to array of objects if needed
       if (args.options && Array.isArray(args.options)) {
-        // Options are already in the correct format from the schema
-        options = args.options;
+        options = args.options.map((option: any) => {
+          if (typeof option === 'string') {
+            // Convert string to object format
+            return { label: option, value: option };
+          } else {
+            // Already in object format
+            return option;
+          }
+        });
       }
       workspacePath = args.workspacePath || '';
     } else {

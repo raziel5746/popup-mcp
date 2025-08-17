@@ -3,7 +3,6 @@
  */
 
 import { RequestHandler } from '../../../src/backend/requestHandler';
-import { ResponseHandler } from '../../../src/backend/responseHandler';
 import { PopupRequest, JSONRPCRequest } from '../../../src/types';
 
 // Mock the logger
@@ -19,7 +18,6 @@ jest.mock('../../../src/utils/logger', () => ({
 describe('TriggerPopup Tool Tests', () => {
   let requestHandler: RequestHandler;
   let mockPopupCallback: jest.Mock;
-  let mockResponseHandler: ResponseHandler;
 
   beforeEach(() => {
     requestHandler = new RequestHandler();
@@ -28,10 +26,18 @@ describe('TriggerPopup Tool Tests', () => {
     // Mock the response handler's registerPendingResponse method
     const responseHandler = requestHandler.getResponseHandler();
     jest.spyOn(responseHandler, 'registerPendingResponse').mockResolvedValue(
-      '{"jsonrpc":"2.0","result":{"selectedValue":"yes"},"id":"test"}'
+      JSON.stringify({
+        jsonrpc: '2.0',
+        result: { selectedValue: 'yes' },
+        id: 'test'
+      })
     );
 
     requestHandler.setPopupTriggerCallback(mockPopupCallback);
+    
+    // Set the extension workspace path to match the test workspace path
+    // This ensures the request will be handled locally instead of trying to route
+    requestHandler.setExtensionWorkspacePath('/test/workspace');
   });
 
   afterEach(() => {
@@ -90,7 +96,7 @@ describe('TriggerPopup Tool Tests', () => {
       expect(tool.inputSchema.properties).toHaveProperty('message');
       expect(tool.inputSchema.properties).toHaveProperty('options');
       expect(tool.inputSchema.properties).toHaveProperty('workspacePath');
-      expect(tool.inputSchema.required).toEqual(['title', 'message']);
+      expect(tool.inputSchema.required).toEqual(['title', 'message', 'workspacePath']);
       expect(tool.annotations).toEqual({
         readOnlyHint: true,
         destructiveHint: false
@@ -109,7 +115,8 @@ describe('TriggerPopup Tool Tests', () => {
           arguments: {
             title: 'Test Popup',
             message: 'This is a test message',
-            options: ['Yes', 'No']
+            options: ['Yes', 'No'],
+            workspacePath: '/test/workspace'
           }
         },
         id: 'test-3'
@@ -124,9 +131,8 @@ describe('TriggerPopup Tool Tests', () => {
       expect(parsed.result.content).toBeInstanceOf(Array);
       expect(parsed.result.content[0].type).toBe('text');
       
-      const content = JSON.parse(parsed.result.content[0].text);
-      expect(content.selectedValue).toBe('yes');
-      expect(content.status).toBe('success');
+      const content = parsed.result.content[0].text;
+      expect(content).toBe('User selected: yes');
 
       // Verify popup callback was called
       expect(mockPopupCallback).toHaveBeenCalledTimes(1);
@@ -151,7 +157,8 @@ describe('TriggerPopup Tool Tests', () => {
             options: [
               { label: 'Confirm', value: 'confirm' },
               { label: 'Cancel', value: 'cancel' }
-            ]
+            ],
+            workspacePath: '/test/workspace'
           }
         },
         id: 'test-4'
@@ -175,7 +182,8 @@ describe('TriggerPopup Tool Tests', () => {
           arguments: {
             title: 'Test Popup',
             message: 'This is a test message',
-            options: []
+            options: [],
+            workspacePath: '/test/workspace'
           }
         },
         id: 'test-5'
@@ -319,7 +327,23 @@ describe('TriggerPopup Tool Tests', () => {
       expect(popupRequest.workspacePath).toBe('/path/to/workspace');
     });
 
-    it('should default workspacePath to empty string for stdio', async () => {
+    it('should use provided workspacePath even when empty', async () => {
+      // Create a fresh request handler without setting extension workspace path
+      const freshRequestHandler = new RequestHandler();
+      const freshMockCallback = jest.fn().mockResolvedValue(undefined);
+      
+      // Mock the response handler for the fresh instance
+      const freshResponseHandler = freshRequestHandler.getResponseHandler();
+      jest.spyOn(freshResponseHandler, 'registerPendingResponse').mockResolvedValue(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          result: { selectedValue: 'yes' },
+          id: 'test'
+        })
+      );
+      
+      freshRequestHandler.setPopupTriggerCallback(freshMockCallback);
+      
       const request: JSONRPCRequest = {
         jsonrpc: '2.0',
         method: 'tools/call',
@@ -327,16 +351,20 @@ describe('TriggerPopup Tool Tests', () => {
           name: 'triggerPopup',
           arguments: {
             title: 'Test Popup',
-            message: 'This is a test message'
+            message: 'This is a test message',
+            options: ['Yes', 'No'],
+            workspacePath: ''  // Explicitly provide empty workspace path
           }
         },
         id: 'test-11'
       };
 
-      await requestHandler.handleRequest(JSON.stringify(request));
+      await freshRequestHandler.handleRequest(JSON.stringify(request));
 
-      const popupRequest: PopupRequest = mockPopupCallback.mock.calls[0][0];
+      const popupRequest: PopupRequest = freshMockCallback.mock.calls[0][0];
       expect(popupRequest.workspacePath).toBe('');
+      
+      freshRequestHandler.dispose();
     });
   });
 
