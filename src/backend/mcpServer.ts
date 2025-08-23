@@ -214,10 +214,10 @@ export class McpServer extends EventEmitter {
       throw new Error('Client not connected');
     }
 
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Popup request timeout'));
-      }, 30000);
+    return new Promise((resolve/* , reject */) => {
+      // const timeout = setTimeout(() => {
+      //   reject(new Error('Popup request timeout'));
+      // }, 30000);
 
       const responseHandler = (data: Buffer) => {
         try {
@@ -228,7 +228,7 @@ export class McpServer extends EventEmitter {
           // Use loose equality to handle string vs number comparison
           if (response.requestId == expectedId) {
             logger.info(`WebSocket response matched! Selected value: ${response.selectedValue}`);
-            clearTimeout(timeout);
+            // clearTimeout(timeout);
             ws.off('message', responseHandler);
             resolve(response);
           } else {

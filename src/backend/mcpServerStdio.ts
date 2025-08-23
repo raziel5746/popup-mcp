@@ -27,7 +27,7 @@ let isExtensionConnected = false;
 const pendingRequests = new Map<string, {
   resolve: (value: any) => void;
   reject: (reason?: any) => void;
-  timeout: NodeJS.Timeout | null;
+  // timeout: NodeJS.Timeout | null;
 }>();
 
 /**
@@ -55,9 +55,9 @@ async function connectToExtension(): Promise<void> {
         if (message.type === 'response' && message.requestId) {
           const pending = pendingRequests.get(message.requestId);
           if (pending) {
-            if (pending.timeout) {
-              clearTimeout(pending.timeout);
-            }
+            // if (pending.timeout) {
+            //   clearTimeout(pending.timeout);
+            // }
             pending.resolve(message.response);
             pendingRequests.delete(message.requestId);
           }
@@ -102,12 +102,12 @@ async function requestPopup(options: any): Promise<any> {
   const requestId = `mcp_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingRequests.delete(requestId);
-      reject(new Error('Request timeout'));
-    }, 30000);
+    // const timeout = setTimeout(() => {
+    //   pendingRequests.delete(requestId);
+    //   reject(new Error('Request timeout'));
+    // }, 30000);
 
-    pendingRequests.set(requestId, { resolve, reject, timeout });
+    pendingRequests.set(requestId, { resolve, reject/* , timeout */ });
 
     const message = {
       type: 'popup_request',
