@@ -48,6 +48,8 @@ export interface ExtensionConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   /** Theme preference for future theme selection (not implemented in MVP) */
   themePreference?: 'auto' | 'light' | 'dark' | 'high-contrast';
+  /** Allow closing popup with Escape key */
+  allowEscClose?: boolean;
 }
 
 /**

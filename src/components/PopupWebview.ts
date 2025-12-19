@@ -28,12 +28,14 @@ export class PopupWebview {
    * @param onResponse - Callback for user response
    * @param onReady - Optional callback when popup is ready/visible
    * @param extensionWorkspacePath - Optional workspace path detected by the extension for comparison
+   * @param allowEscClose - Whether Escape key closes the popup (default: false)
    */
   public async renderPopup(
     request: PopupRequest, 
     onResponse: (response: PopupResponse) => void,
     onReady?: () => void,
-    extensionWorkspacePath?: string
+    extensionWorkspacePath?: string,
+    allowEscClose = false
   ): Promise<void> {
     try {
       // Validate request
@@ -81,7 +83,7 @@ export class PopupWebview {
 
       // Set webview content with error handling
       try {
-        this.panel.webview.html = this.getHtmlContent(request, this.panel.webview, extensionWorkspacePath);
+        this.panel.webview.html = this.getHtmlContent(request, this.panel.webview, extensionWorkspacePath, allowEscClose);
       } catch (error) {
         this.dispose();
         throw new Error(`Failed to generate HTML content: ${error instanceof Error ? error.message : String(error)}`);
@@ -169,7 +171,7 @@ export class PopupWebview {
    * @param extensionWorkspacePath - Optional workspace path detected by the extension for comparison
    * @returns HTML string
    */
-  private getHtmlContent(request: PopupRequest, webview: vscode.Webview, extensionWorkspacePath?: string): string {
+  private getHtmlContent(request: PopupRequest, webview: vscode.Webview, extensionWorkspacePath?: string, allowEscClose = false): string {
     // Generate buttons HTML (options are always {value, label} objects)
     // All buttons should look the same with primary (blue) styling
     const buttonsHtml = request.options.map((option) => {
@@ -678,6 +680,7 @@ export class PopupWebview {
           'use strict';
 
           let isDisposed = false;
+          const allowEscClose = ${allowEscClose ? 'true' : 'false'};
 
           function initializePopup() {
             debugLog('Popup JavaScript initializing...');
@@ -847,8 +850,10 @@ export class PopupWebview {
 
             switch (event.key) {
               case 'Escape':
-                event.preventDefault();
-                handleClose();
+                if (allowEscClose) {
+                  event.preventDefault();
+                  handleClose();
+                }
                 break;
               case 'Enter':
                 // Allow multiline editing in textarea unless Ctrl+Enter is pressed

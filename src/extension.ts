@@ -209,6 +209,9 @@ function setupPopupIntegration(): void {
           extensionDetected: getCurrentWorkspacePath() || 'Not detected'
         });
         
+        const config = SettingsManager.getConfig();
+        const allowEscClose = config.allowEscClose ?? false;
+        
         // Show popup and handle response
         await popupWebview!.renderPopup(request, async (response) => {
           try {
@@ -226,7 +229,7 @@ function setupPopupIntegration(): void {
               `Failed to send popup response: ${error instanceof Error ? error.message : String(error)}`
             );
           }
-        }, undefined, getCurrentWorkspacePath());
+        }, undefined, getCurrentWorkspacePath(), allowEscClose);
         
       } catch (error) {
         logger.error('Error triggering popup:', error);
@@ -394,6 +397,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
       };
       
       // Show popup and handle response
+      const config = loadConfiguration();
+      const allowEscClose = config.allowEscClose ?? false;
+
       await popupWebview.renderPopup(sampleRequest, (response) => {
         logger.info(`Test popup response: ${response.selectedValue}`);
         vscode.window.showInformationMessage(
@@ -404,7 +410,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
             logger.show();
           }
         });
-      }, undefined, getCurrentWorkspacePath());
+      }, undefined, getCurrentWorkspacePath(), allowEscClose);
       
     } catch (error) {
       const errorMessage = `Failed to show test popup: ${error instanceof Error ? error.message : String(error)}`;
@@ -1004,16 +1010,21 @@ async function initializeWebSocketClient(serverPort: number): Promise<void> {
     wsClient.setCallbacks({
       onPopupRequest: async (request: PopupRequest) => {
         logger.info(`Handling popup request via WebSocket: ${request.requestId}`);
+        const config = loadConfiguration();
+        const allowEscClose = config.allowEscClose ?? false;
         
-        return new Promise((resolve, reject) => {
+        return new Promise<{ selectedValue: string }>((resolve, reject) => {
           // Show popup and handle response
           popupWebview!.renderPopup(request, (response) => {
             logger.info(`WebSocket popup response: ${response.selectedValue}`);
             resolve({ selectedValue: response.selectedValue });
-          }, undefined, getCurrentWorkspacePath()).catch(error => {
-            logger.error('Error showing WebSocket popup:', error);
+          }, undefined, getCurrentWorkspacePath(), allowEscClose).catch(error => {
+            logger.error('Error rendering popup:', error);
             reject(error);
           });
+        }).catch(error => {
+          logger.error('Error handling WebSocket popup request:', error);
+          throw error;
         });
       },
       onServerDisconnected: () => {

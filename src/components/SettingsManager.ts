@@ -23,7 +23,8 @@ export class SettingsManager {
       httpPort: config.get<number>('httpPort', 9001),
       enableStdio: config.get<boolean>('enableStdio', true),
       enableHttp: config.get<boolean>('enableHttp', true),
-      logLevel: config.get<'debug' | 'info' | 'warn' | 'error'>('logLevel', 'info')
+      logLevel: config.get<'debug' | 'info' | 'warn' | 'error'>('logLevel', 'info'),
+      allowEscClose: config.get<boolean>('allowEscClose', false)
     };
   }
 

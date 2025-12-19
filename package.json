@@ -97,6 +97,11 @@
           "minimum": 0,
           "maximum": 100,
           "description": "Chime volume level (0-100)"
+        },
+        "popupmcp.allowEscClose": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow closing popups with the Escape key (default: disabled to prevent accidental closes)"
         }
       }
     }
