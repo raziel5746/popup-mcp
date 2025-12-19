@@ -241,7 +241,7 @@ export class PopupWebview {
           overflow: hidden;
           animation: slideIn 0.2s ease-out, glow 3s ease-in-out infinite;
           text-align: left;
-          resize: both;
+          resize: horizontal;
           overflow: auto;
           min-width: 320px;
           min-height: 240px;
