@@ -602,19 +602,18 @@ export class RequestHandler {
     if (this.mcpServer) {
       try {
         logger.info(`No coordination instance found, attempting direct WebSocket routing to: ${requestedWorkspacePath}`);
-        const wsResponse = await this.mcpServer.routePopupToClient(requestedWorkspacePath, request);
+        
+        // Ensure we send a normalized popup request payload rather than raw JSON-RPC
+        const popupRequest = this.createPopupRequestFromJsonRpc(request);
+
+        const wsResponse = await this.mcpServer.routePopupToClient(requestedWorkspacePath, popupRequest);
         
         // Return response in the same MCP tool format as local case
         const mcpToolResponse = {
           jsonrpc: '2.0',
           id: request.id,
           result: {
-            content: [
-              {
-                type: 'text',
-                text: `User selected: ${wsResponse.selectedValue}`
-              }
-            ]
+            selectedValue: wsResponse.selectedValue
           }
         };
         
@@ -711,14 +710,9 @@ export class RequestHandler {
           // Try WebSocket routing
           const response = await this.mcpServer.routePopupToClient(targetInstance.workspacePath, popupRequest);
           
-          // Format the response in MCP tool format
+          // Format the response in MCP tool format consistent with local handling
           return this.createSuccessResponse(request.id, {
-            content: [
-              {
-                type: 'text',
-                text: `User selected: ${response.selectedValue || response.response?.selectedValue || ''}`
-              }
-            ]
+            selectedValue: response.selectedValue || response.response?.selectedValue || ''
           });
           
         } catch (wsError) {

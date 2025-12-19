@@ -157,22 +157,35 @@ export class WebSocketClient {
         return;
       }
 
-      // Extract popup data from JSON-RPC structure
-      const popupArgs = message.params?.arguments;
-      if (!popupArgs) {
-        logger.error('Invalid popup request: missing params.arguments');
-        return;
-      }
-
-      logger.info(`Received popup request via WebSocket: ${message.id}`);
+      logger.info(`Received popup request via WebSocket: ${message.id ?? message.requestId ?? 'unknown'}`);
       
-      // Create popup request object from JSON-RPC structure
+      // Support direct popup_request shape sent over the popup WebSocket
       const popupRequest: PopupRequest = {
-        requestId: message.id?.toString() || 'unknown',
-        workspacePath: popupArgs.workspacePath || this.workspacePath,
-        title: popupArgs.title || 'Popup',
-        message: popupArgs.message || '',
-        options: popupArgs.options || []
+        requestId: (message.requestId ?? message.id ?? 'unknown').toString(),
+        workspacePath: (
+          message.workspacePath ||
+          message.params?.workspacePath ||
+          this.workspacePath ||
+          ''
+        ).toString(),
+        title: (
+          message.title ||
+          message.params?.title ||
+          message.params?.arguments?.title ||
+          'Popup'
+        ),
+        message: (
+          message.message ||
+          message.params?.message ||
+          message.params?.arguments?.message ||
+          ''
+        ),
+        options: (
+          message.options ||
+          message.params?.options ||
+          message.params?.arguments?.options ||
+          []
+        )
       };
 
       // Show popup locally and get user response
