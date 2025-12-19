@@ -101,7 +101,7 @@
         "popupmcp.allowEscClose": {
           "type": "boolean",
           "default": false,
-          "description": "Allow closing popups with the Escape key (default: disabled to prevent accidental closes)"
+          "description": "Allow closing popups with the Escape key"
         }
       }
     }
