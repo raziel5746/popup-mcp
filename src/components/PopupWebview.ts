@@ -807,12 +807,20 @@ export class PopupWebview {
             const customActionButtons = document.getElementById('customActionButtons');
 
             if (customTextInput && customActionButtons) {
-              // Keep visible by default; toggle just focuses and ensures buttons visible
-              customTextInput.style.display = 'block';
-              customActionButtons.style.display = 'flex';
-              setTimeout(() => {
-                customTextInput.focus();
-              }, 10);
+              const isVisible = customTextInput.style.display !== 'none';
+              
+              if (isVisible) {
+                // Hide custom text input and action buttons
+                customTextInput.style.display = 'none';
+                customActionButtons.style.display = 'none';
+              } else {
+                // Show custom text input and action buttons
+                customTextInput.style.display = 'block';
+                customActionButtons.style.display = 'flex';
+                setTimeout(() => {
+                  customTextInput.focus();
+                }, 10);
+              }
             }
           }
 
