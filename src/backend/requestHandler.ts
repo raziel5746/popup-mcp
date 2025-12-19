@@ -167,7 +167,7 @@ export class RequestHandler {
   /**
    * Handles triggerPopup method
    */
-  private async handleTriggerPopup(request: JSONRPCRequest, origin?: string): Promise<string> {
+  async handleTriggerPopup(request: JSONRPCRequest, origin?: string): Promise<string> {
     try {
       const requestedWorkspacePath = request.params.workspacePath;
       

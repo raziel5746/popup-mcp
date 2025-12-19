@@ -232,8 +232,8 @@ export class PopupWebview {
         }
 
         .popup-container {
-          max-width: 450px;
-          width: 100%;
+          max-width: none;
+          width: 450px;
           background: var(--popup-bg);
           border: 1px solid var(--popup-border);
           border-radius: var(--popup-radius);
@@ -241,6 +241,10 @@ export class PopupWebview {
           overflow: hidden;
           animation: slideIn 0.2s ease-out, glow 3s ease-in-out infinite;
           text-align: left;
+          resize: both;
+          overflow: auto;
+          min-width: 320px;
+          min-height: 240px;
         }
 
         @keyframes slideIn {
@@ -272,6 +276,7 @@ export class PopupWebview {
           justify-content: space-between;
           padding: 20px 24px 16px 24px;
           background: var(--popup-bg);
+          position: relative;
         }
 
         .popup-title {
@@ -473,11 +478,25 @@ export class PopupWebview {
           gap: 12px;
           justify-content: space-between;
           align-items: center;
+          flex-wrap: wrap;
         }
 
         .custom-action-buttons {
           display: flex;
           gap: 8px;
+        }
+
+        .popup-timer {
+          font-size: 11px;
+          color: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+          margin-top: 6px;
+        }
+
+        .popup-timer--header {
+          position: absolute;
+          top: 6px;
+          left: 24px;
+          margin-top: 0;
         }
 
         /* Focus styles for accessibility - static glow effect similar to popup border */
@@ -584,6 +603,7 @@ export class PopupWebview {
     <body class="${themeClasses}">
       <div class="popup-container">
         <div class="popup-header">
+          <div class="popup-timer popup-timer--header" id="popupTimer">00:00</div>
           <h2 class="popup-title">${this.escapeHtml(request.title)}</h2>
           <button class="popup-close" id="closeButton" title="Close">×</button>
         </div>
@@ -604,7 +624,7 @@ export class PopupWebview {
             placeholder="Enter your custom response here..."
             rows="3"
             class="popup-textarea"
-            style="display: none;"
+            style="display: block;"
           ></textarea>
           <div class="popup-custom-actions">
             <button
@@ -614,7 +634,7 @@ export class PopupWebview {
             >
               Custom text
             </button>
-            <div class="custom-action-buttons" id="customActionButtons" style="display: none;">
+            <div class="custom-action-buttons" id="customActionButtons" style="display: flex;">
               <button
                 class="popup-button popup-button--secondary"
                 id="cancelCustomTextButton"
@@ -662,7 +682,9 @@ export class PopupWebview {
           function initializePopup() {
             debugLog('Popup JavaScript initializing...');
             setupEventListeners();
+            focusCustomTextInput();
             focusFirstInteractiveElement();
+            startTimer();
             
             // Send ready message to extension
             try {
@@ -724,6 +746,38 @@ export class PopupWebview {
             document.addEventListener('keydown', handleKeyDown);
           }
 
+          function focusCustomTextInput() {
+            const customTextInput = document.getElementById('customTextInput');
+            if (customTextInput) {
+              setTimeout(() => {
+                customTextInput.focus();
+              }, 10);
+            }
+          }
+
+          function startTimer() {
+            const timerEl = document.getElementById('popupTimer');
+            if (!timerEl) return;
+
+            let elapsed = 0;
+            timerEl.textContent = formatTime(elapsed);
+
+            const intervalId = setInterval(() => {
+              if (isDisposed) {
+                clearInterval(intervalId);
+                return;
+              }
+              elapsed += 1;
+              timerEl.textContent = formatTime(elapsed);
+            }, 1000);
+          }
+
+          function formatTime(totalSeconds) {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+          }
+
           function handleButtonClick(event) {
             if (isDisposed) return;
 
@@ -750,21 +804,12 @@ export class PopupWebview {
             const customActionButtons = document.getElementById('customActionButtons');
 
             if (customTextInput && customActionButtons) {
-              const isVisible = customTextInput.style.display !== 'none';
-              
-              if (isVisible) {
-                // Hide custom text input and action buttons
-                customTextInput.style.display = 'none';
-                customActionButtons.style.display = 'none';
-              } else {
-                // Show custom text input and action buttons
-                customTextInput.style.display = 'block';
-                customActionButtons.style.display = 'flex';
-                // Focus the textarea
-                setTimeout(() => {
-                  customTextInput.focus();
-                }, 10);
-              }
+              // Keep visible by default; toggle just focuses and ensures buttons visible
+              customTextInput.style.display = 'block';
+              customActionButtons.style.display = 'flex';
+              setTimeout(() => {
+                customTextInput.focus();
+              }, 10);
             }
           }
 

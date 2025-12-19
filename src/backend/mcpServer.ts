@@ -4,8 +4,13 @@
 
 import * as net from 'net';
 import * as http from 'http';
+import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import WebSocket, { WebSocketServer } from 'ws';
+import { McpServer as SdkMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import { TransportConfig, ServerHealth, TransportError } from '../types';
 import { RequestHandler } from './requestHandler';
 import { logger } from '../utils/logger';
@@ -18,6 +23,10 @@ export class McpServer extends EventEmitter {
   private wsServer?: WebSocket.Server;
   private popupWsServer?: WebSocketServer;
   private clientConnections = new Map<string, WebSocket>(); // workspace -> websocket
+  private streamableHttpSessions = new Map<string, {
+    transport: StreamableHTTPServerTransport;
+    server: SdkMcpServer;
+  }>();
   private stdioActive = false;
   private requestHandler: RequestHandler;
   private startTime: number;
@@ -550,9 +559,9 @@ export class McpServer extends EventEmitter {
         return;
       }
 
-      // Handle MCP endpoint
-      if (req.url === '/mcp' && req.method === 'POST') {
-        await this.handleMcpHttpRequest(req, res);
+      // Handle MCP endpoint via Streamable HTTP transport (supports SSE)
+      if (req.url === '/mcp' && (req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE')) {
+        await this.handleMcpStreamableHttpRequest(req, res);
         return;
       }
 
@@ -573,38 +582,159 @@ export class McpServer extends EventEmitter {
   }
 
   /**
-   * Handles MCP HTTP requests
+   * Handles MCP requests over Streamable HTTP transport (with optional SSE)
    */
-  private async handleMcpHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  private async handleMcpStreamableHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     try {
-      // Read request body
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk.toString();
-      });
+      const sessionIdHeader = req.headers['mcp-session-id'];
+      const sessionId = (Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader) as string | undefined;
 
-      req.on('end', async () => {
-        try {
-          const origin = req.headers.origin as string;
-          const response = await this.requestHandler.handleRequest(body, origin);
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(response);
-        } catch (error) {
-          logger.error('Error processing MCP request:', error);
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            jsonrpc: '2.0',
-            error: { code: -32603, message: 'Internal error' },
-            id: null
-          }));
-        }
-      });
+      if (req.method === 'POST') {
+        let bodyText = '';
+        req.on('data', (chunk) => {
+          bodyText += chunk.toString();
+        });
+
+        req.on('end', async () => {
+          let bodyJson: any;
+          try {
+            bodyJson = bodyText ? JSON.parse(bodyText) : undefined;
+          } catch (error) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+            return;
+          }
+
+          try {
+            const { transport } = await this.getOrCreateStreamableHttpSession(sessionId, bodyJson);
+            await transport.handleRequest(req as any, res as any, bodyJson);
+          } catch (error) {
+            logger.error('Error processing Streamable HTTP MCP request:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              jsonrpc: '2.0',
+              error: { code: -32603, message: 'Internal error' },
+              id: null
+            }));
+          }
+        });
+
+        return;
+      }
+
+      // GET/DELETE are session-based
+      if (!sessionId || !this.streamableHttpSessions.has(sessionId)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid session' }));
+        return;
+      }
+
+      const session = this.streamableHttpSessions.get(sessionId);
+      await session!.transport.handleRequest(req as any, res as any);
     } catch (error) {
-      logger.error('MCP HTTP request error:', error);
+      logger.error('MCP Streamable HTTP request error:', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Request processing failed' }));
     }
+  }
+
+  private async getOrCreateStreamableHttpSession(sessionId: string | undefined, bodyJson: any): Promise<{
+    transport: StreamableHTTPServerTransport;
+    server: SdkMcpServer;
+  }> {
+    if (sessionId && this.streamableHttpSessions.has(sessionId)) {
+      return this.streamableHttpSessions.get(sessionId)!;
+    }
+
+    // Only allow new sessions on initialize
+    if (sessionId) {
+      throw new Error('Invalid session');
+    }
+
+    if (!isInitializeRequest(bodyJson)) {
+      throw new Error('Invalid session');
+    }
+
+    const sdkServer = new SdkMcpServer({
+      name: 'popup-mcp',
+      version: '0.1.0',
+      capabilities: {
+        tools: {}
+      }
+    });
+
+    // Register tool that bridges to the extension popup system
+    sdkServer.registerTool(
+      'triggerPopup',
+      {
+        title: 'Trigger Popup',
+        description: 'Trigger a popup in VS Code for user input. Shows a dialog with title, message, and optional buttons for user interaction.',
+        inputSchema: {
+          title: z.string().describe('Title of the popup'),
+          message: z.string().describe('Message to display to the user'),
+          options: z.array(z.object({
+            value: z.string().describe('The value returned when this option is selected'),
+            label: z.string().describe('The display text shown to the user')
+          })).optional().describe('Array of button options for user selection.'),
+          workspacePath: z.string().describe('Required workspace path to target specific VS Code instance.')
+        }
+      },
+      async ({ title, message, options, workspacePath }) => {
+        const jsonrpcRequest = {
+          jsonrpc: '2.0',
+          id: `sdk_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+          method: 'triggerPopup',
+          params: {
+            title,
+            message,
+            options: options || [],
+            workspacePath
+          }
+        } as any;
+
+        const responseText = await this.requestHandler.handleTriggerPopup(jsonrpcRequest);
+        const response = JSON.parse(responseText);
+        const selectedValue = response?.result?.selectedValue;
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `User selected: ${selectedValue}`
+            }
+          ],
+          structuredContent: {
+            selectedValue
+          }
+        };
+      }
+    );
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (id) => {
+        const existing = this.streamableHttpSessions.get(id);
+        if (!existing) {
+          this.streamableHttpSessions.set(id, { transport, server: sdkServer });
+        }
+      },
+      onsessionclosed: (id) => {
+        this.streamableHttpSessions.delete(id);
+      }
+    });
+
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        this.streamableHttpSessions.delete(transport.sessionId);
+      }
+    };
+
+    await sdkServer.connect(transport);
+    if (transport.sessionId) {
+      this.streamableHttpSessions.set(transport.sessionId, { transport, server: sdkServer });
+    }
+
+    return { transport, server: sdkServer };
   }
 
   /**
