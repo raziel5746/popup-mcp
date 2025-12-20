@@ -1,8 +1,9 @@
 {
   "name": "popup-mcp",
   "displayName": "Popup MCP",
+  "icon": "assets/icon.png",
   "description": "VS Code extension implementing MCP protocol for AI assistant popup interactions",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "raz-labs",
   "engines": {
     "vscode": "^1.70.0",
