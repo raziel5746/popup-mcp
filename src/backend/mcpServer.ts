@@ -606,7 +606,19 @@ export class McpServer extends EventEmitter {
           }
 
           try {
-            const { transport } = await this.getOrCreateStreamableHttpSession(sessionId, bodyJson);
+            // If client sends a stale session, instruct reinitialize instead of throwing
+            if (sessionId && !this.streamableHttpSessions.has(sessionId) && !isInitializeRequest(bodyJson)) {
+              logger.warn(`Invalid MCP session "${sessionId}". Returning reinitialize instruction.`);
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                error: { code: -32002, message: 'Invalid session. Please reinitialize.' },
+                id: bodyJson?.id ?? null
+              }));
+              return;
+            }
+
+            const { transport } = await this.getOrCreateStreamableHttpSession(sessionId);
             await transport.handleRequest(req as any, res as any, bodyJson);
           } catch (error) {
             logger.error('Error processing Streamable HTTP MCP request:', error);
@@ -625,7 +637,11 @@ export class McpServer extends EventEmitter {
       // GET/DELETE are session-based
       if (!sessionId || !this.streamableHttpSessions.has(sessionId)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid session' }));
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32002, message: 'Invalid session. Please reinitialize.' },
+          id: null
+        }));
         return;
       }
 
@@ -638,7 +654,7 @@ export class McpServer extends EventEmitter {
     }
   }
 
-  private async getOrCreateStreamableHttpSession(sessionId: string | undefined, bodyJson: any): Promise<{
+  private async getOrCreateStreamableHttpSession(sessionId?: string): Promise<{
     transport: StreamableHTTPServerTransport;
     server: SdkMcpServer;
   }> {
@@ -646,15 +662,7 @@ export class McpServer extends EventEmitter {
       return this.streamableHttpSessions.get(sessionId)!;
     }
 
-    // Only allow new sessions on initialize
-    if (sessionId) {
-      throw new Error('Invalid session');
-    }
-
-    if (!isInitializeRequest(bodyJson)) {
-      throw new Error('Invalid session');
-    }
-
+    // Always create a fresh session when none exists (e.g., after host promotion)
     const sdkServer = new SdkMcpServer({
       name: 'popup-mcp',
       version: '0.1.0',

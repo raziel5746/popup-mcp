@@ -891,28 +891,63 @@ async function initializeCoordination(desiredHttpPort: number): Promise<void> {
     
     // Create coordinator
     coordinator = new InstanceCoordinator(workspacePath, desiredHttpPort);
-    
+
     // Set up role change handler
     coordinator.on('roleChanged', async (newRole: InstanceRole) => {
       logger.info(`Instance role changed: ${statusState.role} -> ${newRole}`);
       
-      const previousRole = statusState.role;
       statusState.role = newRole;
       statusState.isActive = newRole !== 'inactive';
       
-      // Handle WebSocket client connections based on role changes
-      if (newRole === 'client-active' && previousRole !== 'client-active' && coordinator) {
-        // Became a client - initialize WebSocket client
-        const serverInstance = coordinator.getServerInstance();
-        if (serverInstance?.httpPort) {
-          await initializeWebSocketClient(serverInstance.httpPort);
-        }
-      } else if (previousRole === 'client-active' && newRole !== 'client-active') {
-        // No longer a client - disconnect WebSocket client
+      // Handle role transitions for server/client resources
+      if (newRole === 'server-active') {
+        // Promote to server: stop client WS if any, start MCP server if not running
         if (wsClient) {
           wsClient.disconnect();
           wsClient = undefined;
         }
+
+        if (!mcpServer && coordinator) {
+          const config = loadConfiguration();
+          const allocatedPort = coordinator.getAllocatedPort();
+          const transportConfig = createTransportConfig(config, allocatedPort);
+          logger.info('Promoted to server-active; starting MCP server');
+          mcpServer = new McpServer(transportConfig);
+          setupServerEventHandlers();
+          mcpServer.setInstanceId(coordinator.getInstanceId());
+          mcpServer.setWorkspacePath(getCurrentWorkspacePath());
+          await mcpServer.start();
+          const requestHandler = mcpServer.getRequestHandler();
+          requestHandler.setMcpServer(mcpServer);
+          // Ensure server-mode coordination
+          requestHandler.setServerMode();
+          requestHandler.setCoordinator(coordinator);
+          // Re-wire popup integration now that a server exists
+          setupPopupIntegration();
+        }
+      } else if (newRole === 'client-active') {
+        // Demote to client: stop local server if running, start WS client
+        if (mcpServer) {
+          logger.info('Demoted to client-active; stopping local MCP server');
+          await mcpServer.stop();
+          mcpServer = undefined;
+        }
+
+        const serverInstance = coordinator?.getServerInstance();
+        if (serverInstance?.httpPort) {
+          await initializeWebSocketClient(serverInstance.httpPort);
+        }
+      } else {
+        // Inactive: stop both server and client connections
+        if (wsClient) {
+          wsClient.disconnect();
+          wsClient = undefined;
+        }
+        if (mcpServer) {
+          await mcpServer.stop();
+          mcpServer = undefined;
+        }
+        statusState.serverInfo = undefined;
       }
       
       // Update server info if we're a client
@@ -1034,6 +1069,12 @@ async function initializeWebSocketClient(serverPort: number): Promise<void> {
         statusState.isActive = false;
         statusState.serverInfo = undefined;
         updateStatusBar();
+        // Trigger coordination election to promote a new server if possible
+        if (coordinator) {
+          coordinator.requestElection().catch(err => {
+            logger.error('Failed to trigger election after server disconnect:', err);
+          });
+        }
       },
       onServerReconnected: () => {
         logger.info('Server reconnected - WebSocket connection restored');

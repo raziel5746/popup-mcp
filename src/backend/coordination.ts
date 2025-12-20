@@ -47,6 +47,7 @@ export class InstanceCoordinator extends EventEmitter {
   private currentRole: InstanceRole = 'inactive';
   private workspacePath: string;
   private httpPort?: number;
+  private readonly desiredHttpPort?: number;
   private coordinationFile: string;
   private heartbeatInterval?: NodeJS.Timeout;
   private electionTimeout?: NodeJS.Timeout;
@@ -59,6 +60,7 @@ export class InstanceCoordinator extends EventEmitter {
     super();
     this.instanceId = this.generateInstanceId();
     this.workspacePath = workspacePath;
+    this.desiredHttpPort = desiredHttpPort;
     this.httpPort = desiredHttpPort; // Will be updated after port allocation
     this.coordinationFile = this.getCoordinationFilePath();
     this.state = {
@@ -171,6 +173,13 @@ export class InstanceCoordinator extends EventEmitter {
   }
 
   /**
+   * Public helper to force an election (e.g., when server disconnects)
+   */
+  async requestElection(): Promise<void> {
+    await this.triggerElection();
+  }
+
+  /**
    * Forwards a request to the server instance (for clients)
    */
   async forwardToServer(request: any): Promise<any> {
@@ -207,7 +216,7 @@ export class InstanceCoordinator extends EventEmitter {
    */
   private async performInitialElection(): Promise<void> {
     try {
-      const configuredPort = this.httpPort || 9001;
+      const configuredPort = this.httpPort ?? this.desiredHttpPort ?? 9001;
       
       // Try to connect to the configured port to see if a server already exists
       const existingServer = await this.checkForExistingServer(configuredPort);
@@ -512,6 +521,9 @@ export class InstanceCoordinator extends EventEmitter {
       
       // Reload state to get latest instances
       await this.loadState();
+
+      // Clean up any stale instances before electing
+      await this.cleanupStaleInstances();
       
       // Ensure this instance is registered and up-to-date
       let thisInstance = this.state.instances.get(this.instanceId);
@@ -532,6 +544,23 @@ export class InstanceCoordinator extends EventEmitter {
         thisInstance.httpPort = this.httpPort;
         thisInstance.role = this.currentRole;
         logger.debug(`Updated instance during election: ${this.instanceId} (Port: ${this.httpPort})`);
+      }
+      
+      // Ensure this instance has an allocated port before candidate selection
+      if (!this.httpPort) {
+        try {
+          const startPort = this.desiredHttpPort ?? 9001;
+          this.httpPort = await this.allocateAvailablePort(startPort);
+          const refreshedInstance = this.state.instances.get(this.instanceId);
+          if (refreshedInstance) {
+            refreshedInstance.httpPort = this.httpPort;
+            refreshedInstance.lastSeen = Date.now();
+          }
+          await this.saveState();
+          logger.info(`Allocated port ${this.httpPort} during election for instance ${this.instanceId}`);
+        } catch (error) {
+          logger.warn('Failed to allocate port during election:', error);
+        }
       }
       
       // Find all eligible candidates for server role
